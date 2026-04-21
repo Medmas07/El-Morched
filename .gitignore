@@ -1,0 +1,21 @@
+## Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+.venv/
+venv/
+
+## Node
+node_modules/
+.next/
+.env.local
+
+## Data
+*.tif
+*.asc
+*.dem
+
+## IDE
+.vscode/
+.idea/

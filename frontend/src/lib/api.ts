@@ -1,0 +1,49 @@
+import type { AnalysisRequest, AnalysisResult, MapillaryImage } from "@/types";
+
+const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { "Content-Type": "application/json" },
+    ...init,
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json() as Promise<T>;
+}
+
+export const api = {
+  analysis: {
+    run: (body: AnalysisRequest) =>
+      request<{ run_id: string; status: string }>("/analysis/run", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+
+    get: (runId: string) =>
+      request<AnalysisResult>(`/analysis/${runId}`),
+
+    poll: async (runId: string, intervalMs = 2000, maxMs = 120_000): Promise<AnalysisResult> => {
+      const deadline = Date.now() + maxMs;
+      while (Date.now() < deadline) {
+        const result = await api.analysis.get(runId);
+        if (result.status === "completed" || result.status.startsWith("failed")) {
+          return result;
+        }
+        await new Promise((r) => setTimeout(r, intervalMs));
+      }
+      throw new Error("Analysis timed out");
+    },
+  },
+
+  mapillary: {
+    images: (west: number, south: number, east: number, north: number) =>
+      request<MapillaryImage[]>(
+        `/mapillary/images?west=${west}&south=${south}&east=${east}&north=${north}`
+      ),
+  },
+
+  weather: {
+    get: (lat: number, lon: number, daysBack = 7) =>
+      request(`/weather?lat=${lat}&lon=${lon}&days_back=${daysBack}`),
+  },
+};
