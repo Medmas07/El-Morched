@@ -37,4 +37,5 @@ async def build_profile(payload: ProfileRequest):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        detail = str(exc) or exc.__class__.__name__
+        raise HTTPException(status_code=502, detail=detail) from exc

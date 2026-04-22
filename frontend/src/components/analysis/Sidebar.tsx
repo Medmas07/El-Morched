@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   useAnalysisStore,
   type DrawnPathPoint,
@@ -213,6 +213,7 @@ export default function Sidebar() {
   const [profileOptions, setProfileOptions] = useState<ElevationProfileOptionsResponse | null>(null);
   const [elevationProvider, setElevationProvider] = useState<ProviderSelectValue>("default");
   const [elevationDataset, setElevationDataset] = useState<string>("default");
+  const lastAppliedWidthRef = useRef<number | null>(null);
 
   const hasResults = floodLayers.length > 0;
 
@@ -280,20 +281,48 @@ export default function Sidebar() {
     return sortImagesByNearest(bboxImages);
   }
 
+  async function buildTrajectoryAndProfile(
+    sortedImages: MapillaryImage[]
+  ): Promise<{ trajectory: TrajectoryPoint[]; profile: ProfilePoint[] }> {
+    if (sortedImages.length < 2) {
+      return buildFlatTrajectoryAndProfile(sortedImages);
+    }
+
+    try {
+      const selectedProvider = elevationProvider === "default" ? undefined : elevationProvider;
+      const selectedDataset = elevationDataset === "default" ? undefined : elevationDataset;
+      // Keep selected provider as first choice, but allow fallback chain
+      // to avoid hard failures when one provider times out.
+      const useFallback = true;
+
+      const elevation = await api.elevation.profile({
+        line: sortedImages.map((img) => [img.lon, img.lat] as [number, number]),
+        provider: selectedProvider,
+        dataset: selectedDataset,
+        use_fallback: useFallback,
+      });
+      console.info(
+        `[elevation] provider=${elevation.provider} dataset=${elevation.dataset ?? "default"} points=${elevation.points.length}`
+      );
+      return buildTrajectoryAndProfileFromElevation(sortedImages, elevation);
+    } catch (error) {
+      console.warn("[elevation] profile API failed, using flat fallback profile", error);
+      return buildFlatTrajectoryAndProfile(sortedImages);
+    }
+  }
+
   useEffect(() => {
     if (mode !== "advanced" || !hasResults || !drawnPath || drawnPath.length < 2) return;
+    if (lastAppliedWidthRef.current === pathWidthMeters) return;
 
     const timeoutId = setTimeout(async () => {
       try {
         const sortedImgs = await fetchMapillaryImages(drawnPath, pathWidthMeters, aoi);
+        const { trajectory, profile } = await buildTrajectoryAndProfile(sortedImgs);
 
         setData({
-          trajectory: sortedImgs.map((img) => ({
-            lat: img.lat,
-            lon: img.lon,
-            elevation: 0,
-            image_id: img.id,
-          })),
+          trajectory,
+          profile,
           images: sortedImgs.map((img) => ({
             id: img.id,
             lat: img.lat,
@@ -302,15 +331,24 @@ export default function Sidebar() {
               img.thumb_url ??
               "https://placehold.co/1200x700/0f172a/ffffff?text=No+Mapillary+Image+Found",
           })),
-          profile: [],
         });
+        lastAppliedWidthRef.current = pathWidthMeters;
       } catch (error) {
         console.error("Failed to refetch mapillary images on width change:", error);
       }
     }, 400);
 
     return () => clearTimeout(timeoutId);
-  }, [pathWidthMeters, mode, hasResults, drawnPath, aoi, setData]);
+  }, [
+    pathWidthMeters,
+    mode,
+    hasResults,
+    drawnPath,
+    aoi,
+    setData,
+    elevationProvider,
+    elevationDataset,
+  ]);
 
   async function onRunAnalysis() {
     if (isRunning || !aoi) return;
@@ -331,39 +369,7 @@ export default function Sidebar() {
       setRiskResults(result.flood_layers, result.heat_layers);
 
       const sortedImages = await fetchMapillaryImages(drawnPath, pathWidthMeters, aoi);
-
-      let trajectory: TrajectoryPoint[] = [];
-      let profile: ProfilePoint[] = [];
-
-      if (sortedImages.length >= 2) {
-        try {
-          const selectedProvider = elevationProvider === "default" ? undefined : elevationProvider;
-          const selectedDataset = elevationDataset === "default" ? undefined : elevationDataset;
-          const useFallback = selectedProvider ? false : true;
-
-          const elevation = await api.elevation.profile({
-            line: sortedImages.map((img) => [img.lon, img.lat] as [number, number]),
-            provider: selectedProvider,
-            dataset: selectedDataset,
-            use_fallback: useFallback,
-          });
-          console.info(
-            `[elevation] provider=${elevation.provider} dataset=${elevation.dataset ?? "default"} points=${elevation.points.length}`
-          );
-          const built = buildTrajectoryAndProfileFromElevation(sortedImages, elevation);
-          trajectory = built.trajectory;
-          profile = built.profile;
-        } catch (error) {
-          console.warn("[elevation] profile API failed, using flat fallback profile", error);
-          const built = buildFlatTrajectoryAndProfile(sortedImages);
-          trajectory = built.trajectory;
-          profile = built.profile;
-        }
-      } else {
-        const built = buildFlatTrajectoryAndProfile(sortedImages);
-        trajectory = built.trajectory;
-        profile = built.profile;
-      }
+      const { trajectory, profile } = await buildTrajectoryAndProfile(sortedImages);
 
       setData({
         trajectory,
@@ -377,6 +383,7 @@ export default function Sidebar() {
             "https://placehold.co/1200x700/0f172a/ffffff?text=No+Mapillary+Image+Found",
         })),
       });
+      lastAppliedWidthRef.current = pathWidthMeters;
 
       setMode("advanced");
 

@@ -71,7 +71,8 @@ class ElevationService:
                 }
             except Exception as exc:  # noqa: BLE001
                 last_error = exc
-                logger.warning("Elevation provider '%s' failed: %s", provider_impl.name, exc)
+                message = str(exc) or exc.__class__.__name__
+                logger.warning("Elevation provider '%s' failed: %s", provider_impl.name, message)
 
         raise RuntimeError("All providers failed") from last_error
 

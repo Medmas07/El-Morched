@@ -13,6 +13,9 @@ class GeoNamesProvider(PointElevationProvider):
     name = "geonames"
     base_url = "http://api.geonames.org"
     default_datasets = ("srtm1", "srtm3", "astergdem", "gtopo30")
+    # GeoNames is queried point-by-point after line resampling; keep a larger
+    # provider budget to avoid false failures on medium/long paths.
+    timeout_budget_s = 20.0
 
     def __init__(self, dataset: str | None = None):
         # If dataset is provided, force this dataset only.
@@ -34,7 +37,8 @@ class GeoNamesProvider(PointElevationProvider):
         deadline = monotonic() + self.timeout_budget_s
         elevations: list[float] = []
 
-        async with httpx.AsyncClient() as client:
+        # trust_env=False avoids local proxy env interference.
+        async with httpx.AsyncClient(trust_env=False) as client:
             for lon, lat in sampled_line:
                 elevation = await self._fetch_point(client, lat, lon, deadline)
                 elevations.append(elevation)
