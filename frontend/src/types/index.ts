@@ -19,6 +19,27 @@ export interface ElevationProfileRequest {
   use_fallback?: boolean;
 }
 
+export type ElevationProviderName =
+  | "ors"
+  | "opentopography"
+  | "opentopodata"
+  | "openelevation"
+  | "geonames";
+
+export interface ElevationProfileOptionsResponse {
+  providers: ElevationProviderName[];
+  defaults: {
+    chain: string[];
+    opentopodata_dataset: string;
+    opentopography_demtype: string;
+  };
+  datasets: {
+    geonames?: Record<string, { resolution?: string; endpoint?: string }>;
+    opentopodata?: Record<string, { label?: string; slug?: string }>;
+    opentopography?: Record<string, string>;
+  };
+}
+
 export interface ElevationPoint {
   lat: number;
   lon: number;

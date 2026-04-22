@@ -1,6 +1,7 @@
 import type {
   AnalysisRequest,
   AnalysisResult,
+  ElevationProfileOptionsResponse,
   ElevationProfileRequest,
   ElevationProfileResponse,
   MapillaryImage,
@@ -64,6 +65,8 @@ export const api = {
   },
 
   elevation: {
+    options: () => requestRoot<ElevationProfileOptionsResponse>("/profile/options"),
+
     profile: (body: ElevationProfileRequest) =>
       requestRoot<ElevationProfileResponse>("/profile", {
         method: "POST",

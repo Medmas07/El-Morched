@@ -1,9 +1,14 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAnalysisStore, type ProfilePoint, type TrajectoryPoint } from "@/store/analysis";
 import { api } from "@/lib/api";
-import type { ElevationProfileResponse, MapillaryImage } from "@/types";
+import type {
+  ElevationProfileOptionsResponse,
+  ElevationProfileResponse,
+  ElevationProviderName,
+  MapillaryImage,
+} from "@/types";
 
 function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const toRad = (value: number) => (value * Math.PI) / 180;
@@ -128,6 +133,62 @@ function buildTrajectoryAndProfileFromElevation(
   return { trajectory, profile };
 }
 
+type ProviderSelectValue = "default" | ElevationProviderName;
+
+type DatasetOption = {
+  value: string;
+  label: string;
+};
+
+const FALLBACK_PROVIDER_OPTIONS: ElevationProviderName[] = [
+  "ors",
+  "opentopography",
+  "opentopodata",
+  "openelevation",
+  "geonames",
+];
+
+const PROVIDER_LABELS: Record<ElevationProviderName, string> = {
+  ors: "OpenRouteService",
+  opentopography: "OpenTopography",
+  opentopodata: "OpenTopoData",
+  openelevation: "Open-Elevation",
+  geonames: "GeoNames",
+};
+
+function toDatasetOptions(
+  provider: ProviderSelectValue,
+  options: ElevationProfileOptionsResponse | null
+): DatasetOption[] {
+  if (!options || provider === "default") return [];
+
+  if (provider === "opentopodata") {
+    const datasets = options.datasets?.opentopodata ?? {};
+    return Object.entries(datasets).map(([key, value]) => ({
+      value: value?.slug ?? key,
+      label: value?.label ?? key,
+    }));
+  }
+
+  if (provider === "opentopography") {
+    const datasets = options.datasets?.opentopography ?? {};
+    return Object.entries(datasets).map(([key, value]) => ({
+      value: key,
+      label: `${key} - ${value}`,
+    }));
+  }
+
+  if (provider === "geonames") {
+    const datasets = options.datasets?.geonames ?? {};
+    return Object.entries(datasets).map(([key, value]) => ({
+      value: key,
+      label: value?.resolution ? `${key} (${value.resolution})` : key,
+    }));
+  }
+
+  return [];
+}
+
 export default function Sidebar() {
   const mode = useAnalysisStore((s) => s.mode);
   const setMode = useAnalysisStore((s) => s.setMode);
@@ -140,13 +201,51 @@ export default function Sidebar() {
   const setActiveLayer = useAnalysisStore((s) => s.setActiveLayer);
   const setAOI = useAnalysisStore((s) => s.setAOI);
   const setData = useAnalysisStore((s) => s.setData);
+  const [profileOptions, setProfileOptions] = useState<ElevationProfileOptionsResponse | null>(null);
+  const [elevationProvider, setElevationProvider] = useState<ProviderSelectValue>("default");
+  const [elevationDataset, setElevationDataset] = useState<string>("default");
 
   const hasResults = floodLayers.length > 0;
+
+  useEffect(() => {
+    let active = true;
+
+    api.elevation
+      .options()
+      .then((options) => {
+        if (!active) return;
+        setProfileOptions(options);
+      })
+      .catch((error) => {
+        console.warn("[elevation] options API unavailable, using defaults", error);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    setElevationDataset("default");
+  }, [elevationProvider]);
 
   const aoiLabel = useMemo(() => {
     if (!aoi) return "No AOI selected";
     return `${aoi.south.toFixed(4)}, ${aoi.west.toFixed(4)} -> ${aoi.north.toFixed(4)}, ${aoi.east.toFixed(4)}`;
   }, [aoi]);
+
+  const providerOptions = useMemo(() => {
+    const configured = (profileOptions?.providers ?? FALLBACK_PROVIDER_OPTIONS).filter(
+      (provider): provider is ElevationProviderName =>
+        FALLBACK_PROVIDER_OPTIONS.includes(provider as ElevationProviderName)
+    );
+    return configured.length ? configured : FALLBACK_PROVIDER_OPTIONS;
+  }, [profileOptions]);
+
+  const datasetOptions = useMemo(
+    () => toDatasetOptions(elevationProvider, profileOptions),
+    [elevationProvider, profileOptions]
+  );
 
   async function onRunAnalysis() {
     if (isRunning || !aoi) return;
@@ -174,9 +273,15 @@ export default function Sidebar() {
 
       if (sortedImages.length >= 2) {
         try {
+          const selectedProvider = elevationProvider === "default" ? undefined : elevationProvider;
+          const selectedDataset = elevationDataset === "default" ? undefined : elevationDataset;
+          const useFallback = selectedProvider ? false : true;
+
           const elevation = await api.elevation.profile({
             line: sortedImages.map((img) => [img.lon, img.lat] as [number, number]),
-            use_fallback: true,
+            provider: selectedProvider,
+            dataset: selectedDataset,
+            use_fallback: useFallback,
           });
           console.info(
             `[elevation] provider=${elevation.provider} dataset=${elevation.dataset ?? "default"} points=${elevation.points.length}`
@@ -241,6 +346,61 @@ export default function Sidebar() {
         }`}
       >
         AOI: {aoiLabel}
+      </div>
+
+      <div
+        className={`rounded-md p-3 space-y-2 ${
+          mode === "simple" ? "bg-slate-100 text-slate-700" : "bg-slate-900 text-slate-200"
+        }`}
+      >
+        <p className="text-xs font-semibold">Elevation Source</p>
+
+        <div className="space-y-1">
+          <label className="block text-[11px] uppercase tracking-wide opacity-80">Provider</label>
+          <select
+            value={elevationProvider}
+            onChange={(event) => setElevationProvider(event.target.value as ProviderSelectValue)}
+            className={`w-full rounded-md px-2 py-1 text-xs border ${
+              mode === "simple"
+                ? "bg-white border-slate-300 text-slate-900"
+                : "bg-[#111827] border-slate-700 text-slate-100"
+            }`}
+          >
+            <option value="default">Auto (default chain)</option>
+            {providerOptions.map((provider) => (
+              <option key={provider} value={provider}>
+                {PROVIDER_LABELS[provider]}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="space-y-1">
+          <label className="block text-[11px] uppercase tracking-wide opacity-80">Dataset</label>
+          <select
+            value={elevationDataset}
+            onChange={(event) => setElevationDataset(event.target.value)}
+            disabled={elevationProvider === "default" || datasetOptions.length === 0}
+            className={`w-full rounded-md px-2 py-1 text-xs border disabled:opacity-50 disabled:cursor-not-allowed ${
+              mode === "simple"
+                ? "bg-white border-slate-300 text-slate-900"
+                : "bg-[#111827] border-slate-700 text-slate-100"
+            }`}
+          >
+            <option value="default">
+              {elevationProvider === "default"
+                ? "Default chain selection"
+                : datasetOptions.length
+                ? "Default dataset"
+                : "No dataset option"}
+            </option>
+            {datasetOptions.map((dataset) => (
+              <option key={dataset.value} value={dataset.value}>
+                {dataset.label}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       <button
