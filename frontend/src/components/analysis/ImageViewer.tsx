@@ -21,6 +21,8 @@ export default function ImageViewer() {
   const pause = useAnalysisStore((s) => s.pause);
 
   const active = images[clampIndex(currentIndex, images.length)];
+  const isRunning = useAnalysisStore((s) => s.isRunning);
+  const mode = useAnalysisStore((s) => s.mode);
 
   useEffect(() => {
     if (!isPlaying) return;
@@ -44,8 +46,12 @@ export default function ImageViewer() {
           // eslint-disable-next-line @next/next/no-img-element
           <img src={active.url} alt={active.id} className="h-full w-full object-cover" />
         ) : (
-          <div className="h-full w-full grid place-items-center text-sm text-slate-500">
-            Run analysis to load images
+          <div className="h-full w-full grid place-items-center px-4 text-sm text-slate-500 text-center">
+            {isRunning
+              ? "Running analysis and fetching street-level imagery..."
+              : mode === "advanced" && images.length === 0
+              ? "No street-level images available from Mapillary along this exact path."
+              : "Run analysis to load images"}
           </div>
         )}
       </div>

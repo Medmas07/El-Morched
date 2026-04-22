@@ -1,4 +1,5 @@
 import type { AnalysisRequest, AnalysisResult, MapillaryImage } from "@/types";
+import type { DrawnPathPoint } from "@/store/analysis";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 
@@ -40,6 +41,14 @@ export const api = {
       request<MapillaryImage[]>(
         `/mapillary/images?west=${west}&south=${south}&east=${east}&north=${north}`
       ),
+    imagesAlongPath: (path: DrawnPathPoint[], widthMeters: number) =>
+      request<MapillaryImage[]>("/mapillary/images/along-path", {
+        method: "POST",
+        body: JSON.stringify({
+          path,
+          width_meters: widthMeters,
+        }),
+      }),
   },
 
   weather: {

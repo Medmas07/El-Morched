@@ -7,3 +7,47 @@ html, body {
   padding: 0;
   height: 100%;
 }
+
+/* Custom Neon & Glow Animations for Map Lines */
+.path-glow-animation {
+  filter: drop-shadow(0 0 8px rgba(0, 243, 255, 0.8));
+  animation: pulse-glow 2s infinite alternate;
+}
+
+.path-neon-glow {
+  filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.6))
+          drop-shadow(0 0 12px rgba(0, 243, 255, 0.8));
+}
+
+.corridor-pulse {
+  animation: corridor-breathe 3s infinite alternate;
+}
+
+@keyframes pulse-glow {
+  0% { filter: drop-shadow(0 0 4px rgba(0, 243, 255, 0.6)); }
+  100% { filter: drop-shadow(0 0 12px rgba(0, 243, 255, 1)); }
+}
+
+@keyframes corridor-breathe {
+  0% { stroke-opacity: 0.15; }
+  100% { stroke-opacity: 0.35; }
+}
+
+.marker-pulse {
+  animation: marker-glow 1.5s ease-in-out infinite alternate;
+  filter: drop-shadow(0 0 6px rgba(0, 243, 255, 0.9));
+}
+
+@keyframes marker-glow {
+  0% { 
+    r: 6;
+    stroke-width: 2;
+    stroke-opacity: 0.8;
+  }
+  100% { 
+    r: 9;
+    stroke-width: 4;
+    stroke-opacity: 1;
+    filter: drop-shadow(0 0 10px rgba(0, 243, 255, 1));
+  }
+}

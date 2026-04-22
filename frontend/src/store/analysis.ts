@@ -30,6 +30,12 @@ export interface AOI {
   north: number;
 }
 
+/** A simplified drawn path — used to fetch Mapillary images along the route */
+export interface DrawnPathPoint {
+  lat: number;
+  lon: number;
+}
+
 interface AnalysisStore {
   mode: Mode;
   currentIndex: number;
@@ -39,7 +45,11 @@ interface AnalysisStore {
   isPlaying: boolean;
   aoi: AOI | null;
   isRunning: boolean;
-  
+  pathWidthMeters: number;
+
+  /** Simplified freehand path the user drew; null if using legacy bbox draw */
+  drawnPath: DrawnPathPoint[] | null;
+
   // Risk layer state
   floodLayers: RiskLayer[];
   heatLayers: RiskLayer[];
@@ -47,7 +57,9 @@ interface AnalysisStore {
 
   setIndex: (index: number) => void;
   setAOI: (aoi: AOI | null) => void;
+  setDrawnPath: (path: DrawnPathPoint[] | null) => void;
   setMode: (mode: Mode) => void;
+  setPathWidthMeters: (meters: number) => void;
   play: () => void;
   pause: () => void;
   next: () => void;
@@ -58,7 +70,7 @@ interface AnalysisStore {
     profile: ProfilePoint[];
   }) => void;
   setRunning: (running: boolean) => void;
-  
+
   // Risk layer setters
   setRiskResults: (flood: RiskLayer[], heat: RiskLayer[]) => void;
   setActiveLayer: (layer: "flood" | "heat") => void;
@@ -80,7 +92,9 @@ export const useAnalysisStore = create<AnalysisStore>((set, get) => ({
   isPlaying: false,
   aoi: null,
   isRunning: false,
-  
+  pathWidthMeters: 25,
+  drawnPath: null,
+
   // Initial risk layer state
   floodLayers: [],
   heatLayers: [],
@@ -92,7 +106,9 @@ export const useAnalysisStore = create<AnalysisStore>((set, get) => ({
     })),
 
   setAOI: (aoi) => set({ aoi }),
+  setDrawnPath: (drawnPath) => set({ drawnPath }),
   setMode: (mode) => set({ mode }),
+  setPathWidthMeters: (pathWidthMeters) => set({ pathWidthMeters }),
   play: () => set({ isPlaying: true }),
   pause: () => set({ isPlaying: false }),
 
@@ -121,7 +137,7 @@ export const useAnalysisStore = create<AnalysisStore>((set, get) => ({
     }),
 
   setRunning: (isRunning) => set({ isRunning }),
-  
+
   // Implementation of risk layer setters
   setRiskResults: (flood, heat) => set({ floodLayers: flood, heatLayers: heat }),
   setActiveLayer: (layer) => set({ activeLayer: layer }),
