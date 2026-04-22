@@ -12,6 +12,35 @@ export interface AnalysisRequest {
   weather_days_back?: number;
 }
 
+export interface ElevationProfileRequest {
+  line: [number, number][];
+  provider?: "ors" | "opentopography" | "opentopodata" | "openelevation" | "geonames";
+  dataset?: string;
+  use_fallback?: boolean;
+}
+
+export interface ElevationPoint {
+  lat: number;
+  lon: number;
+  elevation: number;
+}
+
+export interface ElevationProfileSample {
+  lat: number;
+  lon: number;
+  distance: number;
+  elevation: number;
+  slope: number;
+}
+
+export interface ElevationProfileResponse {
+  provider: string;
+  dataset?: string | null;
+  points: ElevationPoint[];
+  profile: ElevationProfileSample[];
+  total_distance: number;
+}
+
 export interface RiskLayer {
   risk_type: "flood" | "heat";
   score: number;
