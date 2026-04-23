@@ -8,8 +8,11 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body>{children}</body>
+    <html lang="en" className="h-full">
+      <head>
+        <meta name="referrer" content="no-referrer" />
+      </head>
+      <body className="h-full">{children}</body>
     </html>
   );
 }

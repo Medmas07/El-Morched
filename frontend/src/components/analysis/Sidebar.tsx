@@ -194,6 +194,16 @@ function toDatasetOptions(
   return [];
 }
 
+function isSameAoi(a: { west: number; south: number; east: number; north: number } | null, b: { west: number; south: number; east: number; north: number } | null): boolean {
+  if (!a || !b) return false;
+  return (
+    a.west === b.west &&
+    a.south === b.south &&
+    a.east === b.east &&
+    a.north === b.north
+  );
+}
+
 export default function Sidebar() {
   const mode = useAnalysisStore((s) => s.mode);
   const setMode = useAnalysisStore((s) => s.setMode);
@@ -202,10 +212,14 @@ export default function Sidebar() {
   const isRunning = useAnalysisStore((s) => s.isRunning);
   const activeLayer = useAnalysisStore((s) => s.activeLayer);
   const floodLayers = useAnalysisStore((s) => s.floodLayers);
+  const lastAnalyzedBbox = useAnalysisStore((s) => s.lastAnalyzedBbox);
+  const lastAnalysisDurationSeconds = useAnalysisStore((s) => s.lastAnalysisDurationSeconds);
   const setRunning = useAnalysisStore((s) => s.setRunning);
   const setRiskResults = useAnalysisStore((s) => s.setRiskResults);
   const setActiveLayer = useAnalysisStore((s) => s.setActiveLayer);
+  const setLastAnalysisDurationSeconds = useAnalysisStore((s) => s.setLastAnalysisDurationSeconds);
   const setAOI = useAnalysisStore((s) => s.setAOI);
+  const flyTo = useAnalysisStore((s) => s.flyTo);
   const pathWidthMeters = useAnalysisStore((s) => s.pathWidthMeters);
   const setPathWidthMeters = useAnalysisStore((s) => s.setPathWidthMeters);
   const setData = useAnalysisStore((s) => s.setData);
@@ -318,6 +332,7 @@ export default function Sidebar() {
     const timeoutId = setTimeout(async () => {
       try {
         const sortedImgs = await fetchMapillaryImages(drawnPath, pathWidthMeters, aoi);
+        console.log("IMAGES:", JSON.stringify(sortedImgs[0]));
         const { trajectory, profile } = await buildTrajectoryAndProfile(sortedImgs);
 
         setData({
@@ -327,6 +342,7 @@ export default function Sidebar() {
             id: img.id,
             lat: img.lat,
             lon: img.lon,
+            thumb_url: img.thumb_url,
             url:
               img.thumb_url ??
               "https://placehold.co/1200x700/0f172a/ffffff?text=No+Mapillary+Image+Found",
@@ -352,7 +368,14 @@ export default function Sidebar() {
 
   async function onRunAnalysis() {
     if (isRunning || !aoi) return;
+
+    if (floodLayers.length > 0 && isSameAoi(aoi, lastAnalyzedBbox)) {
+      return;
+    }
+
     setRunning(true);
+    setLastAnalysisDurationSeconds(null);
+    const startedAt = Date.now();
 
     try {
       const { run_id } = await api.analysis.run({
@@ -360,36 +383,56 @@ export default function Sidebar() {
         weather_days_back: 7,
       });
       const result = await api.analysis.poll(run_id);
+      const completedAt = Date.now();
+      setLastAnalysisDurationSeconds((completedAt - startedAt) / 1000);
 
       if (result.status !== "completed") {
         alert(`Analysis failed: ${result.status}`);
         return;
       }
 
-      setRiskResults(result.flood_layers, result.heat_layers);
+      const backendImages = (result.images ?? []).slice(0, 200);
+      const normalizedImages = backendImages.map((img) => ({
+        id: img.id,
+        lat: img.lat,
+        lon: img.lon,
+        url:
+          img.url ??
+          img.thumb_url ??
+          "https://placehold.co/1200x700/0f172a/ffffff?text=No+Mapillary+Image+Found",
+      }));
 
-      const sortedImages = await fetchMapillaryImages(drawnPath, pathWidthMeters, aoi);
-      const { trajectory, profile } = await buildTrajectoryAndProfile(sortedImages);
-
-      setData({
-        trajectory,
-        profile,
-        images: sortedImages.map((img) => ({
-          id: img.id,
+      const trajectoryFromResult =
+        result.trajectory?.map((point, index) => ({
+          lat: point.lat,
+          lon: point.lon,
+          elevation: point.elevation ?? 0,
+          image_id: point.image_id ?? normalizedImages[index]?.id ?? `pt-${index}`,
+        })) ??
+        normalizedImages.map((img) => ({
           lat: img.lat,
           lon: img.lon,
-          url:
-            img.thumb_url ??
-            "https://placehold.co/1200x700/0f172a/ffffff?text=No+Mapillary+Image+Found",
-        })),
+          elevation: 0,
+          image_id: img.id,
+        }));
+
+      const { profile } = await buildTrajectoryAndProfile(normalizedImages);
+
+      setData({
+        trajectory: trajectoryFromResult,
+        profile,
+        images: normalizedImages,
       });
-      lastAppliedWidthRef.current = pathWidthMeters;
+
+      setRiskResults(result.flood_layers ?? [], result.heat_layers ?? []);
 
       setMode("advanced");
-
-      const currentAoi = aoi;
-      setAOI(null);
-      setTimeout(() => setAOI(currentAoi), 50);
+      setAOI(aoi);
+      flyTo({
+        lat: (aoi.north + aoi.south) / 2,
+        lon: (aoi.east + aoi.west) / 2,
+        zoom: 13,
+      });
     } catch (error) {
       alert(`Error: ${String(error)}`);
     } finally {
@@ -513,6 +556,18 @@ export default function Sidebar() {
       >
         {isRunning ? "Analyzing..." : !aoi ? "Draw a path first" : "Run Analysis"}
       </button>
+
+      {lastAnalysisDurationSeconds !== null && hasResults && (
+        <div
+          className={`inline-flex self-start rounded-full px-2 py-1 text-[11px] font-semibold ${
+            mode === "simple" ? "bg-slate-100 text-slate-700" : "bg-slate-900 text-slate-200"
+          }`}
+        >
+          {lastAnalysisDurationSeconds < 0.5
+            ? `Cached — returned in ${lastAnalysisDurationSeconds.toFixed(1)}s`
+            : `Completed in ${lastAnalysisDurationSeconds.toFixed(1)}s`}
+        </div>
+      )}
 
       {hasResults && (
         <div className={`rounded-md p-3 ${mode === "simple" ? "bg-slate-100" : "bg-slate-900"} space-y-2`}>

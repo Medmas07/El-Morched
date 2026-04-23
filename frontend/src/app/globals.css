@@ -8,6 +8,11 @@ html, body {
   height: 100%;
 }
 
+body > div,
+body > div > div {
+  height: 100%;
+}
+
 /* Custom Neon & Glow Animations for Map Lines */
 .path-glow-animation {
   filter: drop-shadow(0 0 8px rgba(0, 243, 255, 0.8));

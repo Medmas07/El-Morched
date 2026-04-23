@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { useAnalysisStore, type TrajectoryPoint } from "@/store/analysis";
+import { useAnalysisStore, type AssistantWaypoint, type TrajectoryPoint } from "@/store/analysis";
 import { RISK_COLORS, type RiskCategory } from "@/types";
 
 type Basemap = "osm" | "satellite" | "terrain";
@@ -68,6 +68,8 @@ export default function MapView({ onMapReady }: MapViewProps) {
   const aoi = useAnalysisStore((s) => s.aoi);
   const setAOI = useAnalysisStore((s) => s.setAOI);
   const setDrawnPath = useAnalysisStore((s) => s.setDrawnPath);
+  const assistantWaypoints = useAnalysisStore((s) => s.assistantWaypoints);
+  const assistantRoute = useAnalysisStore((s) => s.assistantRoute);
 
   const floodLayers = useAnalysisStore((s) => s.floodLayers);
   const heatLayers = useAnalysisStore((s) => s.heatLayers);
@@ -81,6 +83,8 @@ export default function MapView({ onMapReady }: MapViewProps) {
   const tileRef = useRef<L.TileLayer | null>(null);
   const lineRef = useRef<L.Polyline | null>(null);
   const markerRef = useRef<L.Marker | null>(null);
+  const assistantRouteLineRef = useRef<L.Polyline | null>(null);
+  const assistantMarkersRef = useRef<L.Marker[]>([]);
   const aoiRectRef = useRef<L.Rectangle | null>(null);
   const riskLayerGroupRef = useRef<L.LayerGroup | null>(null);
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
@@ -255,6 +259,52 @@ export default function MapView({ onMapReady }: MapViewProps) {
         .addTo(riskLayerGroupRef.current!);
     }
   }, [floodLayers, heatLayers, activeLayer]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (assistantRouteLineRef.current) {
+      assistantRouteLineRef.current.remove();
+      assistantRouteLineRef.current = null;
+    }
+
+    if (assistantRoute.length < 2) return;
+
+    assistantRouteLineRef.current = L.polyline(
+      assistantRoute.map((point) => [point.lat, point.lon] as L.LatLngTuple),
+      {
+        color: "#a78bfa",
+        weight: 3,
+        dashArray: "8 4",
+        opacity: 0.9,
+      }
+    ).addTo(map);
+  }, [assistantRoute]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    for (const marker of assistantMarkersRef.current) {
+      marker.remove();
+    }
+    assistantMarkersRef.current = [];
+
+    for (const waypoint of assistantWaypoints) {
+      const icon = L.divIcon({
+        html: `<div style="background:#7c3aed;color:white;padding:2px 6px;border-radius:8px;font-size:11px;white-space:nowrap;border:1px solid rgba(167,139,250,0.4)">${waypoint.label.split(",")[0]}</div>`,
+        className: "",
+      });
+
+      const marker = L.marker([waypoint.lat, waypoint.lon], {
+        icon,
+        zIndexOffset: 9000,
+      }).addTo(map);
+
+      assistantMarkersRef.current.push(marker);
+    }
+  }, [assistantWaypoints]);
 
   // ---------------------------------------------------------------------------
   // Trajectory polyline

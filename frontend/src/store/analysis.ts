@@ -15,6 +15,7 @@ export interface ImagePoint {
   url: string;
   lat: number;
   lon: number;
+  thumb_url?: string;
 }
 
 export interface ProfilePoint {
@@ -36,6 +37,12 @@ export interface DrawnPathPoint {
   lon: number;
 }
 
+export interface AssistantWaypoint {
+  lat: number;
+  lon: number;
+  label: string;
+}
+
 interface AnalysisStore {
   mode: Mode;
   currentIndex: number;
@@ -50,10 +57,16 @@ interface AnalysisStore {
   /** Simplified freehand path the user drew; null if using legacy bbox draw */
   drawnPath: DrawnPathPoint[] | null;
 
+  /** Assistant-generated route overlay for the map */
+  assistantWaypoints: AssistantWaypoint[];
+  assistantRoute: DrawnPathPoint[];
+
   // Risk layer state
   floodLayers: RiskLayer[];
   heatLayers: RiskLayer[];
   activeLayer: "flood" | "heat";
+  lastAnalyzedBbox: AOI | null;
+  lastAnalysisDurationSeconds: number | null;
   
   // FlyTo state
   flyToTarget: { lat: number; lon: number; zoom: number } | null;
@@ -63,6 +76,9 @@ interface AnalysisStore {
   setDrawnPath: (path: DrawnPathPoint[] | null) => void;
   setMode: (mode: Mode) => void;
   setPathWidthMeters: (meters: number) => void;
+  setAssistantWaypoints: (waypoints: AssistantWaypoint[]) => void;
+  setAssistantRoute: (route: DrawnPathPoint[]) => void;
+  clearAssistantRoute: () => void;
   play: () => void;
   pause: () => void;
   next: () => void;
@@ -77,6 +93,7 @@ interface AnalysisStore {
   // Risk layer setters
   setRiskResults: (flood: RiskLayer[], heat: RiskLayer[]) => void;
   setActiveLayer: (layer: "flood" | "heat") => void;
+  setLastAnalysisDurationSeconds: (seconds: number | null) => void;
   
   // FlyTo setters
   flyTo: (target: { lat: number; lon: number; zoom: number }) => void;
@@ -101,11 +118,15 @@ export const useAnalysisStore = create<AnalysisStore>((set, get) => ({
   isRunning: false,
   pathWidthMeters: 25,
   drawnPath: null,
+  assistantWaypoints: [],
+  assistantRoute: [],
 
   // Initial risk layer state
   floodLayers: [],
   heatLayers: [],
   activeLayer: "flood",
+  lastAnalyzedBbox: null,
+  lastAnalysisDurationSeconds: null,
   
   // Initial FlyTo state
   flyToTarget: null,
@@ -119,6 +140,9 @@ export const useAnalysisStore = create<AnalysisStore>((set, get) => ({
   setDrawnPath: (drawnPath) => set({ drawnPath }),
   setMode: (mode) => set({ mode }),
   setPathWidthMeters: (pathWidthMeters) => set({ pathWidthMeters }),
+  setAssistantWaypoints: (assistantWaypoints) => set({ assistantWaypoints }),
+  setAssistantRoute: (assistantRoute) => set({ assistantRoute }),
+  clearAssistantRoute: () => set({ assistantWaypoints: [], assistantRoute: [], drawnPath: null }),
   play: () => set({ isPlaying: true }),
   pause: () => set({ isPlaying: false }),
 
@@ -144,13 +168,18 @@ export const useAnalysisStore = create<AnalysisStore>((set, get) => ({
       mode: "advanced",
       isPlaying: false,
       isRunning: false,
+      assistantWaypoints: [],
+      assistantRoute: [],
     }),
 
   setRunning: (isRunning) => set({ isRunning }),
 
   // Implementation of risk layer setters
-  setRiskResults: (flood, heat) => set({ floodLayers: flood, heatLayers: heat }),
+  setRiskResults: (flood, heat) =>
+    set({ floodLayers: flood, heatLayers: heat, lastAnalyzedBbox: get().aoi }),
   setActiveLayer: (layer) => set({ activeLayer: layer }),
+  setLastAnalysisDurationSeconds: (lastAnalysisDurationSeconds) =>
+    set({ lastAnalysisDurationSeconds }),
   
   // Implementation of FlyTo setters
   flyTo: (target) => set({ flyToTarget: target }),

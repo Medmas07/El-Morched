@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:assistant": "node scripts/test-assistant.mjs",
+    "test:assistant:verbose": "node scripts/test-assistant.mjs --verbose",
+    "test:assistant:fast": "node scripts/test-assistant.mjs --verbose --fast"
   },
   "dependencies": {
     "leaflet": "^1.9.4",

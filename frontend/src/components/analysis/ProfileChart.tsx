@@ -17,6 +17,26 @@ export default function ProfileChart() {
   const currentIndex = useAnalysisStore((s) => s.currentIndex);
   const setIndex = useAnalysisStore((s) => s.setIndex);
 
+  if (profile.length === 0) {
+    return (
+      <section className="h-full w-full bg-[#0b1220] text-slate-100 p-3">
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-cyan-300">Elevation Profile</h3>
+          <span className="text-xs text-slate-400">No profile</span>
+        </div>
+        <div className="h-[calc(100%-28px)] w-full rounded-lg border border-slate-800 bg-[#0a0f1a] p-2">
+          <div className="flex h-full flex-col items-center justify-center gap-3 text-center px-6">
+            <div className="text-slate-400 text-sm font-medium">No elevation profile yet</div>
+            <div className="text-slate-500 text-xs leading-relaxed">
+              Draw a path on the map using the route tool, then click "Get Profile" in the sidebar to
+              generate an elevation chart for that path.
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   const data = profile.map((p, idx) => ({
     ...p,
     idx,
