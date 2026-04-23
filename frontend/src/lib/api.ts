@@ -1,8 +1,8 @@
 
 import type { DrawnPathPoint } from "@/store/analysis";
 import type {
-  AnalysisRequest,
   AnalysisResult,
+  AnalysisRequest,
   ElevationProfileOptionsResponse,
   ElevationProfileRequest,
   ElevationProfileResponse,
@@ -13,6 +13,17 @@ import type {
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 const ROOT = BASE.replace(/\/api\/v1\/?$/, "");
 const _imageCache = new Map<string, MapillaryImage[]>();
+
+export interface AssistantChatMessage {
+  role: "system" | "user" | "assistant" | "tool";
+  content?: string | null;
+  tool_call_id?: string;
+  tool_calls?: {
+    id: string;
+    type: "function";
+    function: { name: string; arguments: string };
+  }[];
+}
 
 export function clearImageCache() {
   _imageCache.clear();
@@ -112,6 +123,36 @@ export const api = {
       requestRoot<ElevationProfileResponse>("/profile", {
         method: "POST",
         body: JSON.stringify(body),
+      }),
+  },
+
+  assistant: {
+    chat: (
+      body: {
+        model: string;
+        messages: AssistantChatMessage[];
+        tools: unknown[];
+        tool_choice: string;
+        temperature: number;
+        max_tokens: number;
+      },
+      options?: { signal?: AbortSignal }
+    ) =>
+      request<{
+        choices: {
+          message: {
+            content: string | null;
+            tool_calls?: {
+              id: string;
+              type: "function";
+              function: { name: string; arguments: string };
+            }[];
+          };
+        }[];
+      }>("/assistant/chat", {
+        method: "POST",
+        body: JSON.stringify(body),
+        signal: options?.signal,
       }),
   },
 };

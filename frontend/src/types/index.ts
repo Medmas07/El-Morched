@@ -74,6 +74,19 @@ export interface AnalysisResult {
   status: string;
   flood_layers: RiskLayer[];
   heat_layers: RiskLayer[];
+  images?: {
+    id: string;
+    url: string;
+    lat: number;
+    lon: number;
+    thumb_url?: string;
+  }[];
+  trajectory?: {
+    lat: number;
+    lon: number;
+    elevation?: number;
+    image_id?: string;
+  }[];
   image_count: number;
   simulation_engine_used: string;
 }
@@ -82,6 +95,7 @@ export interface MapillaryImage {
   id: string;
   lat: number;
   lon: number;
+  url?: string;
   thumb_url?: string;
   captured_at?: string;
 }

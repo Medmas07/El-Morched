@@ -219,6 +219,7 @@ export default function Sidebar() {
   const setActiveLayer = useAnalysisStore((s) => s.setActiveLayer);
   const setLastAnalysisDurationSeconds = useAnalysisStore((s) => s.setLastAnalysisDurationSeconds);
   const setAOI = useAnalysisStore((s) => s.setAOI);
+  const flyTo = useAnalysisStore((s) => s.flyTo);
   const pathWidthMeters = useAnalysisStore((s) => s.pathWidthMeters);
   const setPathWidthMeters = useAnalysisStore((s) => s.setPathWidthMeters);
   const setData = useAnalysisStore((s) => s.setData);
@@ -331,6 +332,7 @@ export default function Sidebar() {
     const timeoutId = setTimeout(async () => {
       try {
         const sortedImgs = await fetchMapillaryImages(drawnPath, pathWidthMeters, aoi);
+        console.log("IMAGES:", JSON.stringify(sortedImgs[0]));
         const { trajectory, profile } = await buildTrajectoryAndProfile(sortedImgs);
 
         setData({
@@ -340,6 +342,7 @@ export default function Sidebar() {
             id: img.id,
             lat: img.lat,
             lon: img.lon,
+            thumb_url: img.thumb_url,
             url:
               img.thumb_url ??
               "https://placehold.co/1200x700/0f172a/ffffff?text=No+Mapillary+Image+Found",
@@ -388,30 +391,48 @@ export default function Sidebar() {
         return;
       }
 
-      setRiskResults(result.flood_layers, result.heat_layers);
+      const backendImages = (result.images ?? []).slice(0, 200);
+      const normalizedImages = backendImages.map((img) => ({
+        id: img.id,
+        lat: img.lat,
+        lon: img.lon,
+        url:
+          img.url ??
+          img.thumb_url ??
+          "https://placehold.co/1200x700/0f172a/ffffff?text=No+Mapillary+Image+Found",
+      }));
 
-      const sortedImages = await fetchMapillaryImages(drawnPath, pathWidthMeters, aoi);
-      const { trajectory, profile } = await buildTrajectoryAndProfile(sortedImages);
-
-      setData({
-        trajectory,
-        profile,
-        images: sortedImages.map((img) => ({
-          id: img.id,
+      const trajectoryFromResult =
+        result.trajectory?.map((point, index) => ({
+          lat: point.lat,
+          lon: point.lon,
+          elevation: point.elevation ?? 0,
+          image_id: point.image_id ?? normalizedImages[index]?.id ?? `pt-${index}`,
+        })) ??
+        normalizedImages.map((img) => ({
           lat: img.lat,
           lon: img.lon,
-          url:
-            img.thumb_url ??
-            "https://placehold.co/1200x700/0f172a/ffffff?text=No+Mapillary+Image+Found",
-        })),
+          elevation: 0,
+          image_id: img.id,
+        }));
+
+      const { profile } = await buildTrajectoryAndProfile(normalizedImages);
+
+      setData({
+        trajectory: trajectoryFromResult,
+        profile,
+        images: normalizedImages,
       });
-      lastAppliedWidthRef.current = pathWidthMeters;
+
+      setRiskResults(result.flood_layers ?? [], result.heat_layers ?? []);
 
       setMode("advanced");
-
-      const currentAoi = aoi;
-      setAOI(null);
-      setTimeout(() => setAOI(currentAoi), 50);
+      setAOI(aoi);
+      flyTo({
+        lat: (aoi.north + aoi.south) / 2,
+        lon: (aoi.east + aoi.west) / 2,
+        zoom: 13,
+      });
     } catch (error) {
       alert(`Error: ${String(error)}`);
     } finally {

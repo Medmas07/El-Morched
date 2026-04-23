@@ -15,6 +15,7 @@ export interface ImagePoint {
   url: string;
   lat: number;
   lon: number;
+  thumb_url?: string;
 }
 
 export interface ProfilePoint {
@@ -36,6 +37,12 @@ export interface DrawnPathPoint {
   lon: number;
 }
 
+export interface AssistantWaypoint {
+  lat: number;
+  lon: number;
+  label: string;
+}
+
 interface AnalysisStore {
   mode: Mode;
   currentIndex: number;
@@ -49,6 +56,10 @@ interface AnalysisStore {
 
   /** Simplified freehand path the user drew; null if using legacy bbox draw */
   drawnPath: DrawnPathPoint[] | null;
+
+  /** Assistant-generated route overlay for the map */
+  assistantWaypoints: AssistantWaypoint[];
+  assistantRoute: DrawnPathPoint[];
 
   // Risk layer state
   floodLayers: RiskLayer[];
@@ -65,6 +76,9 @@ interface AnalysisStore {
   setDrawnPath: (path: DrawnPathPoint[] | null) => void;
   setMode: (mode: Mode) => void;
   setPathWidthMeters: (meters: number) => void;
+  setAssistantWaypoints: (waypoints: AssistantWaypoint[]) => void;
+  setAssistantRoute: (route: DrawnPathPoint[]) => void;
+  clearAssistantRoute: () => void;
   play: () => void;
   pause: () => void;
   next: () => void;
@@ -104,6 +118,8 @@ export const useAnalysisStore = create<AnalysisStore>((set, get) => ({
   isRunning: false,
   pathWidthMeters: 25,
   drawnPath: null,
+  assistantWaypoints: [],
+  assistantRoute: [],
 
   // Initial risk layer state
   floodLayers: [],
@@ -124,6 +140,9 @@ export const useAnalysisStore = create<AnalysisStore>((set, get) => ({
   setDrawnPath: (drawnPath) => set({ drawnPath }),
   setMode: (mode) => set({ mode }),
   setPathWidthMeters: (pathWidthMeters) => set({ pathWidthMeters }),
+  setAssistantWaypoints: (assistantWaypoints) => set({ assistantWaypoints }),
+  setAssistantRoute: (assistantRoute) => set({ assistantRoute }),
+  clearAssistantRoute: () => set({ assistantWaypoints: [], assistantRoute: [], drawnPath: null }),
   play: () => set({ isPlaying: true }),
   pause: () => set({ isPlaying: false }),
 
@@ -149,6 +168,8 @@ export const useAnalysisStore = create<AnalysisStore>((set, get) => ({
       mode: "advanced",
       isPlaying: false,
       isRunning: false,
+      assistantWaypoints: [],
+      assistantRoute: [],
     }),
 
   setRunning: (isRunning) => set({ isRunning }),

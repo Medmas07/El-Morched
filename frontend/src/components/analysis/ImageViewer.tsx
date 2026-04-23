@@ -21,8 +21,8 @@ export default function ImageViewer() {
   const pause = useAnalysisStore((s) => s.pause);
 
   const active = images[clampIndex(currentIndex, images.length)];
-  const isRunning = useAnalysisStore((s) => s.isRunning);
-  const mode = useAnalysisStore((s) => s.mode);
+  const imageSrc = active?.url?.trim() || active?.thumb_url?.trim() || "";
+  console.log("active:", active, "imageSrc:", imageSrc);
 
   useEffect(() => {
     if (!isPlaying) return;
@@ -32,8 +32,49 @@ export default function ImageViewer() {
     return () => window.clearInterval(timer);
   }, [isPlaying, next]);
 
+  useEffect(() => {
+    console.log("=== ImageViewer DEBUG ===");
+    console.log("images.length:", images.length);
+    console.log("currentIndex:", currentIndex);
+    console.log("active:", active);
+    console.log("imageSrc:", imageSrc);
+
+    const img = document.querySelector("img[alt]") as HTMLImageElement | null;
+    if (img) {
+      const rect = img.getBoundingClientRect();
+      console.log("img element found:", img.src.slice(0, 60));
+      console.log("img dimensions:", {
+        width: rect.width,
+        height: rect.height,
+        top: rect.top,
+        left: rect.left,
+      });
+      console.log("img naturalSize:", {
+        naturalWidth: img.naturalWidth,
+        naturalHeight: img.naturalHeight,
+      });
+      console.log("img display:", window.getComputedStyle(img).display);
+      console.log("img visibility:", window.getComputedStyle(img).visibility);
+      console.log("img opacity:", window.getComputedStyle(img).opacity);
+
+      let el: HTMLElement | null = img;
+      let depth = 0;
+      while (el && depth < 8) {
+        const style = window.getComputedStyle(el);
+        const rect2 = el.getBoundingClientRect();
+        console.log(
+          `parent[${depth}] tag=${el.tagName} class="${el.className}" w=${rect2.width} h=${rect2.height} overflow=${style.overflow} display=${style.display}`
+        );
+        el = el.parentElement;
+        depth++;
+      }
+    } else {
+      console.log("NO img element found in DOM");
+    }
+  }, [images, imageSrc, active, currentIndex]);
+
   return (
-    <section className="h-full w-full bg-[#0f172a] text-slate-100 p-3 flex flex-col gap-2">
+    <section className="w-full bg-[#0f172a] text-slate-100 p-3 flex flex-col gap-2" style={{ height: "100%" }}>
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold tracking-wide uppercase text-cyan-300">Image Viewer</h2>
         <span className="text-xs text-slate-400">
@@ -41,18 +82,16 @@ export default function ImageViewer() {
         </span>
       </div>
 
-      <div className="flex-1 min-h-0 rounded-lg border border-slate-700 bg-black overflow-hidden">
-        {active ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={active.url} alt={active.id} className="h-full w-full object-cover" />
-        ) : (
-          <div className="h-full w-full grid place-items-center px-4 text-sm text-slate-500 text-center">
-            {isRunning
-              ? "Running analysis and fetching street-level imagery..."
-              : mode === "advanced" && images.length === 0
-              ? "No street-level images available from Mapillary along this exact path."
-              : "Run analysis to load images"}
+      <div className="rounded-lg border border-slate-700 bg-black overflow-hidden" style={{ flex: "1 1 0", minHeight: 0 }}>
+        {images.length === 0 || !imageSrc ? (
+          <div className="flex h-full items-center justify-center text-slate-500 text-sm text-center px-4">
+            No street images found for this area.
+            <br />
+            Mapillary coverage may be limited here.
           </div>
+        ) : (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={imageSrc} alt={active.id} className="w-full object-cover" style={{ height: "100%", display: "block" }} />
         )}
       </div>
 
