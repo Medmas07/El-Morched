@@ -5,7 +5,6 @@ import { api, type AssistantChatMessage } from "@/lib/api";
 import { useAnalysisStore, type DrawnPathPoint } from "@/store/analysis";
 
 const GROQ_MODEL = "llama-3.1-8b-instant";
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 
 type Role = "user" | "assistant" | "tool";
 
@@ -145,6 +144,23 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
+// Clean up Nominatim display names — remove Arabic text and long admin chains
+function cleanLocationName(raw: string): string {
+  // Split by comma, take first and last parts only
+  const parts = raw.split(",").map((p) => p.trim()).filter(Boolean);
+  if (parts.length <= 2) return raw;
+  return `${parts[0]}, ${parts[parts.length - 1]}`;
+}
+
+// Check if a location string is vague (user meant "here" / "the analyzed area")
+const VAGUE_TERMS = ["here", "there", "this area", "current area", "analyzed area",
+  "this location", "the area", "nearby", "current location", "this place"];
+
+function isVagueLocation(loc: string): boolean {
+  const lower = loc.toLowerCase().trim();
+  return !lower || VAGUE_TERMS.some((t) => lower.includes(t));
+}
+
 async function geocode(location: string): Promise<GeocodeResult | null> {
   const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location)}&format=jsonv2&limit=1`;
   const res = await fetch(url, { headers: { "Accept-Language": "en" } });
@@ -176,6 +192,12 @@ async function getOSRMRoute(coords: { lat: number; lon: number }[]) {
 function buildSystemPrompt() {
   const state = useAnalysisStore.getState();
   const hasRisk = state.floodLayers.length > 0 || state.heatLayers.length > 0;
+  const aoiCenter = state.aoi
+    ? {
+        lat: ((state.aoi.north + state.aoi.south) / 2).toFixed(4),
+        lon: ((state.aoi.east + state.aoi.west) / 2).toFixed(4),
+      }
+    : null;
 
   return `You are GeoAI, a geospatial assistant for flood/heat risk mapping.
 
@@ -185,18 +207,39 @@ TOOL RULES (never violate):
 - Knowledge questions (why/how/what causes): answer directly, no tools.
 - get_risk_summary: when user asks about current map results.
 - geocode_location: when user asks to navigate/find a place.
-- get_weather: when user asks about weather for a place.
+- get_weather: when user asks about weather. If user says "here", "there", "this area" — still call get_weather, the tool will use the current map area automatically.
 
 APP STATE:
 - Risk loaded: ${hasRisk ? `YES (${state.floodLayers.length} flood, ${state.heatLayers.length} heat zones)` : "NO"}
-- AOI: ${state.aoi ? "set" : "none"} | Layer: ${state.activeLayer} | Running: ${state.isRunning ? "YES" : "no"}
+- Current map area: ${aoiCenter ? `lat ${aoiCenter.lat}, lon ${aoiCenter.lon}` : "none set"}
+- Active layer: ${state.activeLayer} | Running: ${state.isRunning ? "YES — wait" : "no"}
 
 Scores: 0-0.2=none, 0.2-0.4=low, 0.4-0.6=medium, 0.6-0.8=high, 0.8-1.0=extreme.
 Be concise. Use bullet points. Max 100 words per response.`;
 }
 
+// Contextual suggestions based on current store state
 function getContextualSuggestions(): string[] {
-  return ["Analyze this area", "What's the weather here?"];
+  const state = useAnalysisStore.getState();
+  const hasRisk = state.floodLayers.length > 0 || state.heatLayers.length > 0;
+  const hasAoi = !!state.aoi;
+
+  const suggestions: string[] = [];
+
+  if (hasRisk) {
+    suggestions.push("Explain the risk results");
+    suggestions.push("What's the weather in this area?");
+  } else if (hasAoi) {
+    suggestions.push("Run a risk analysis here");
+    suggestions.push("What's the weather in this area?");
+  } else {
+    suggestions.push("Analyze flood risk in Nabeul");
+    suggestions.push("Show me Tunis on the map");
+  }
+
+  suggestions.push("Route from Tunis to Sousse");
+
+  return suggestions.slice(0, 3);
 }
 
 async function executeTool(
@@ -220,9 +263,30 @@ async function executeTool(
     setDrawnPath: (path: DrawnPathPoint[] | null) => void;
   }
 ): Promise<string> {
+  // Read store once at the top — all tools can use this
+  const state = useAnalysisStore.getState();
+  const aoiCenter = state.aoi
+    ? {
+        lat: (state.aoi.north + state.aoi.south) / 2,
+        lon: (state.aoi.east + state.aoi.west) / 2,
+      }
+    : null;
+
   switch (name) {
     case "geocode_location": {
       const location = String(args.location ?? "");
+
+      // If vague and we have an AOI, use map center
+      if (isVagueLocation(location) && aoiCenter) {
+        actions.flyTo({ lat: aoiCenter.lat, lon: aoiCenter.lon, zoom: 13 });
+        return JSON.stringify({
+          action: "map_centered",
+          location: "current map area",
+          lat: aoiCenter.lat,
+          lon: aoiCenter.lon,
+        });
+      }
+
       const geo = await geocode(location);
       if (!geo) return `Could not find "${location}".`;
 
@@ -239,7 +303,7 @@ async function executeTool(
       actions.flyTo({ lat: geo.lat, lon: geo.lon, zoom: 13 });
       return JSON.stringify({
         action: "map_centered",
-        location: geo.display_name,
+        location: cleanLocationName(geo.display_name),
         lat: geo.lat,
         lon: geo.lon,
       });
@@ -275,7 +339,11 @@ async function executeTool(
       actions.setAssistantRoute(routePath);
       actions.setDrawnPath(routePath);
       actions.setAOI({ west: minLon, south: minLat, east: maxLon, north: maxLat });
-      actions.flyTo({ lat: resolved[Math.floor(resolved.length / 2)].lat, lon: resolved[Math.floor(resolved.length / 2)].lon, zoom: 11 });
+      actions.flyTo({
+        lat: resolved[Math.floor(resolved.length / 2)].lat,
+        lon: resolved[Math.floor(resolved.length / 2)].lon,
+        zoom: 11,
+      });
 
       return JSON.stringify({
         action: "route_plotted",
@@ -288,24 +356,43 @@ async function executeTool(
     case "get_weather": {
       const location = String(args.location ?? "");
       const daysBack = clamp(Number(args.days_back ?? 7), 1, 90);
-      const geo = await geocode(location);
-      if (!geo) return `Could not find "${location}".`;
 
+      // If vague location ("here", "there", etc.) and AOI exists → use map center directly
+      if (isVagueLocation(location) && aoiCenter) {
+        const weather = await api.weather.get(aoiCenter.lat, aoiCenter.lon, daysBack);
+        return JSON.stringify({
+          location: "current map area",
+          lat: aoiCenter.lat,
+          lon: aoiCenter.lon,
+          weather,
+        });
+      }
+
+      // Otherwise geocode the named location
+      const geo = await geocode(location);
+      if (!geo) return `Could not find "${location}". Please name a specific place.`;
       const weather = await api.weather.get(geo.lat, geo.lon, daysBack);
-      return JSON.stringify({ location: geo.display_name, lat: geo.lat, lon: geo.lon, weather });
+      return JSON.stringify({
+        location: cleanLocationName(geo.display_name),
+        lat: geo.lat,
+        lon: geo.lon,
+        weather,
+      });
     }
 
     case "get_risk_summary": {
-      const state = useAnalysisStore.getState();
       if (!state.floodLayers.length && !state.heatLayers.length) {
         return JSON.stringify({
-          error: "No risk analysis results loaded. Use run_risk_analysis first."
+          error: "No risk analysis results loaded yet.",
+          hint: aoiCenter
+            ? "An area is set on the map but no analysis has been run. Use run_risk_analysis with a location name."
+            : "No area selected. Ask the user which location to analyze.",
         });
       }
 
       const summarizeLayers = (layers: typeof state.floodLayers) => {
         if (!layers.length) return null;
-        const scores = layers.map(l => l.score);
+        const scores = layers.map((l) => l.score);
         const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
         const max = Math.max(...scores);
         const dist = { none: 0, low: 0, medium: 0, high: 0, extreme: 0 };
@@ -318,7 +405,7 @@ async function executeTool(
           else dist.extreme++;
         }
 
-        const highRiskLayer = layers.find(l => l.score > 0.6) ?? layers[0];
+        const highRiskLayer = layers.find((l) => l.score > 0.6) ?? layers[0];
         const c = highRiskLayer.components as Record<string, unknown>;
 
         return {
@@ -333,8 +420,7 @@ async function executeTool(
             vegetation_coverage: c.vegetation_coverage ?? null,
             simulation_engine: c.engine ?? null,
             mean_temp_c: c.mean_temp_c ?? null,
-            rainfall_contribution: c.weather_score ?? null,
-          }
+          },
         };
       };
 
@@ -346,11 +432,11 @@ async function executeTool(
         heat: summarizeLayers(state.heatLayers),
         interpretation_guide: {
           score_ranges: "0-0.2=none, 0.2-0.4=low, 0.4-0.6=medium, 0.6-0.8=high, 0.8-1.0=extreme",
-          weather_score: "0-1, derived from 7-day rainfall totals and peak intensity",
-          terrain_score: "0-1, higher means flatter/lower elevation = more flood prone",
-          impervious_surface: "0-1, fraction of concrete/asphalt from street imagery",
-          vegetation: "0-1, higher means more trees/grass = better cooling and drainage"
-        }
+          weather_score: "0-1, from 7-day rainfall totals",
+          terrain_score: "0-1, higher = flatter/lower = more flood prone",
+          impervious_surface: "0-1, fraction of concrete/asphalt",
+          vegetation: "0-1, higher = more trees = better drainage/cooling",
+        },
       });
     }
 
@@ -373,10 +459,7 @@ async function executeTool(
       actions.setRunning(true);
 
       try {
-        const run = await api.analysis.run({
-          bbox,
-          simulation_engine: "null",
-        });
+        const run = await api.analysis.run({ bbox, simulation_engine: "null" });
         const result = await api.analysis.poll(run.run_id, 2000, 120_000);
 
         const validImages = (result.images ?? []).filter(
@@ -403,7 +486,6 @@ async function executeTool(
 
         actions.setRiskResults(result.flood_layers ?? [], result.heat_layers ?? []);
         actions.setLastAnalysisDurationSeconds(null);
-        actions.setAOI(bbox);
         actions.flyTo({
           lat: (bbox.north + bbox.south) / 2,
           lon: (bbox.east + bbox.west) / 2,
@@ -412,15 +494,15 @@ async function executeTool(
 
         return JSON.stringify({
           action: "analysis_completed",
-          location: geo.display_name,
+          location: cleanLocationName(geo.display_name),
           bbox,
           status: result.status,
           flood_layers: result.flood_layers?.length ?? 0,
           heat_layers: result.heat_layers?.length ?? 0,
           images_fetched: validImages.length,
           note: validImages.length
-            ? "Switched to advanced mode. Street images and risk polygons now visible."
-            : "Risk polygons rendered. No street images found for this area (Mapillary coverage may be limited)."
+            ? "Risk polygons rendered. Street images loaded in advanced mode."
+            : "Risk polygons rendered. No street images found (Mapillary coverage may be limited).",
         });
       } catch (error) {
         return `Analysis failed: ${error instanceof Error ? error.message : String(error)}`;
@@ -443,21 +525,22 @@ async function executeTool(
 function formatToolResult(name: string, result: string) {
   try {
     const parsed = JSON.parse(result) as Record<string, unknown>;
+    const loc = cleanLocationName(String(parsed.location ?? "location"));
     switch (name) {
       case "geocode_location":
-        return `📍 Centered on ${String(parsed.location ?? "location")}`;
+        return `📍 Flew to ${loc}`;
       case "set_waypoints":
-        return `🛣️ Route placed · ${String(parsed.route_distance_km ?? "?")} km · ~${String(parsed.route_duration_min ?? "?")} min`;
+        return `🛣️ Route · ${String(parsed.route_distance_km ?? "?")} km · ~${String(parsed.route_duration_min ?? "?")} min`;
       case "get_weather":
-        return `🌦️ Weather loaded for ${String(parsed.location ?? "location")}`;
+        return `🌦️ Weather loaded for ${loc}`;
       case "get_risk_summary":
         return parsed.error ? `⚠️ ${String(parsed.error)}` : "📊 Risk summary ready";
       case "run_risk_analysis":
-        return `✅ Analysis complete for ${String(parsed.location ?? "location")}`;
+        return `✅ Analysis complete · ${loc}`;
       case "clear_map_overlays":
-        return "🧹 Assistant overlays cleared";
+        return "🧹 Overlays cleared";
       default:
-        return "✓ Tool completed";
+        return "✓ Done";
     }
   } catch {
     return result.length > 140 ? `${result.slice(0, 140)}…` : result;
@@ -492,15 +575,15 @@ function MarkdownText({ text }: { text: string }) {
 function AssistantTyping() {
   return (
     <div className="flex items-start gap-2.5">
-      <div className="mt-0.5 flex h-7 w-7 items-center justify-center rounded-2xl border border-cyan-400/20 bg-cyan-400/10 text-cyan-200 shadow-[0_0_20px_rgba(34,211,238,0.12)]">
+      <div className="mt-0.5 flex h-7 w-7 items-center justify-center rounded-2xl border border-cyan-400/20 bg-cyan-400/10 text-cyan-200">
         ✦
       </div>
       <div className="flex items-center gap-1.5 rounded-[22px] border border-white/[0.08] bg-white/[0.04] px-4 py-3">
         {[0, 1, 2].map((i) => (
           <span
             key={i}
-            className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-dot-bounce"
-            style={{ animationDelay: `${i * 0.18}s` }}
+            className="h-1.5 w-1.5 rounded-full bg-cyan-400/60 animate-bounce"
+            style={{ animationDelay: `${i * 150}ms` }}
           />
         ))}
       </div>
@@ -513,7 +596,8 @@ export default function GeoAssistant() {
     {
       id: "welcome",
       role: "assistant",
-      content: "Hi! I'm GeoAI. Ask me to navigate, route, check weather, or run a risk analysis.",
+      content:
+        "Hi! I'm **GeoAI**. I can navigate the map, plan routes, fetch weather, and run flood/heat risk analysis.\n\nWhat would you like to explore?",
     },
   ]);
   const [input, setInput] = useState("");
@@ -533,9 +617,10 @@ export default function GeoAssistant() {
   const setAssistantRoute = useAnalysisStore((s) => s.setAssistantRoute);
   const clearAssistantRoute = useAnalysisStore((s) => s.clearAssistantRoute);
   const setDrawnPath = useAnalysisStore((s) => s.setDrawnPath);
-  const activeLayer = useAnalysisStore((s) => s.activeLayer);
-  const lastAnalysisDurationSeconds = useAnalysisStore((s) => s.lastAnalysisDurationSeconds);
-  const isRunning = useAnalysisStore((s) => s.isRunning);
+
+  // Watch store changes to re-render contextual suggestions
+  const floodLayers = useAnalysisStore((s) => s.floodLayers);
+  const aoi = useAnalysisStore((s) => s.aoi);
 
   useEffect(() => {
     const container = messagesContainerRef.current;
@@ -576,18 +661,13 @@ export default function GeoAssistant() {
       setLoading(true);
       setInput("");
 
-      const userMessage: Message = {
-        id: genId(),
-        role: "user",
-        content: trimmed,
-      };
-
+      const userMessage: Message = { id: genId(), role: "user", content: trimmed };
       setMessages((prev) => [...prev, userMessage]);
 
       const recentMessages = messages
-        .filter((message) => message.role !== "tool")
+        .filter((m) => m.role !== "tool")
         .slice(-4)
-        .map((message) => ({ role: message.role, content: message.content }));
+        .map((m) => ({ role: m.role, content: m.content }));
 
       const conversation: AssistantChatMessage[] = [
         { role: "system", content: buildSystemPrompt() },
@@ -597,41 +677,31 @@ export default function GeoAssistant() {
 
       try {
         for (let iteration = 0; iteration < 6; iteration += 1) {
-          const requestBody = {
-            model: GROQ_MODEL,
-            messages: conversation,
-            tools: TOOLS as unknown as unknown[],
-            tool_choice: "auto",
-            temperature: 0.2,
-            max_tokens: 1200,
-          };
+          const response = await api.assistant.chat(
+            {
+              model: GROQ_MODEL,
+              messages: conversation,
+              tools: TOOLS as unknown as unknown[],
+              tool_choice: "auto",
+              temperature: 0.2,
+              max_tokens: 1200,
+            },
+            { signal: controller.signal }
+          );
 
-          let content = "";
-          let toolCalls: ToolCall[] = [];
+          const assistantMessage = response.choices?.[0]?.message;
+          const content = assistantMessage?.content ?? "";
+          const toolCalls = (assistantMessage?.tool_calls as ToolCall[] | undefined) ?? [];
 
-          {
-            const response = await api.assistant.chat(requestBody, {
-              signal: controller.signal,
-            });
-            const assistantMessage = response.choices?.[0]?.message;
-
-            content = assistantMessage?.content ?? "";
-            toolCalls = (assistantMessage?.tool_calls as ToolCall[] | undefined) ?? [];
-
-            if (content) {
-              setMessages((prev) => [...prev, { id: genId(), role: "assistant", content }]);
-            }
+          if (content) {
+            setMessages((prev) => [...prev, { id: genId(), role: "assistant", content }]);
           }
 
-          conversation.push({
-            role: "assistant",
-            content,
-            tool_calls: toolCalls,
-          });
+          conversation.push({ role: "assistant", content, tool_calls: toolCalls });
 
           if (!toolCalls.length) break;
 
-          for (const toolCall of toolCalls as ToolCall[]) {
+          for (const toolCall of toolCalls) {
             let args: Record<string, unknown> = {};
             try {
               args = JSON.parse(toolCall.function.arguments || "{}");
@@ -642,7 +712,7 @@ export default function GeoAssistant() {
             const toolMessageId = genId();
             const summary =
               toolCall.function.name === "set_waypoints" && Array.isArray(args.waypoints)
-                ? `Routing ${String((args.waypoints as string[]).join(" → "))}`
+                ? `Routing ${(args.waypoints as string[]).join(" → ")}`
                 : toolCall.function.name === "geocode_location" && args.location
                   ? `Finding ${String(args.location)}`
                   : toolCall.function.name === "run_risk_analysis" && args.location
@@ -651,40 +721,24 @@ export default function GeoAssistant() {
 
             setMessages((prev) => [
               ...prev,
-              {
-                id: toolMessageId,
-                role: "tool",
-                toolCallId: toolCall.id,
-                toolName: toolCall.function.name,
-                content: summary,
-              },
+              { id: toolMessageId, role: "tool", toolCallId: toolCall.id, toolName: toolCall.function.name, content: summary },
             ]);
 
             const result = await executeTool(toolCall.function.name, args, actions);
             const shortResult = formatToolResult(toolCall.function.name, result);
 
             setMessages((prev) =>
-              prev.map((message) =>
-                message.id === toolMessageId ? { ...message, content: shortResult } : message
-              )
+              prev.map((m) => (m.id === toolMessageId ? { ...m, content: shortResult } : m))
             );
 
-            conversation.push({
-              role: "tool",
-              content: result,
-              tool_call_id: toolCall.id,
-            });
+            conversation.push({ role: "tool", content: result, tool_call_id: toolCall.id });
           }
         }
       } catch (error) {
         if ((error as Error).name !== "AbortError") {
           setMessages((prev) => [
             ...prev,
-            {
-              id: genId(),
-              role: "assistant",
-              content: `Error: ${error instanceof Error ? error.message : String(error)}`,
-            },
+            { id: genId(), role: "assistant", content: `Error: ${error instanceof Error ? error.message : String(error)}` },
           ]);
         }
       } finally {
@@ -700,120 +754,107 @@ export default function GeoAssistant() {
     if (!loading) return;
     abortRef.current?.abort();
     setLoading(false);
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: genId(),
-        role: "assistant",
-        content: "Stopped. You can send another request.",
-      },
-    ]);
+    setMessages((prev) => [...prev, { id: genId(), role: "assistant", content: "Stopped." }]);
   }, [loading]);
 
   const clearChat = useCallback(() => {
-    setMessages([
-      {
-        id: genId(),
-        role: "assistant",
-        content: "Chat cleared. How can I help you?",
-      },
-    ]);
+    setMessages([{ id: genId(), role: "assistant", content: "Chat cleared. How can I help?" }]);
   }, []);
 
-  const contextualSuggestions = getContextualSuggestions();
+  // Recompute suggestions reactively when store changes
+  const suggestions = getContextualSuggestions();
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  void floodLayers; void aoi; // consumed above via getContextualSuggestions
 
   return (
     <section className="flex h-full w-full flex-col overflow-hidden bg-[#08101f] border-0">
-      <header className="border-b border-white/5 bg-gradient-to-r from-cyan-500/12 via-blue-500/10 to-fuchsia-500/12 px-4 py-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <div className="flex h-9 w-9 items-center justify-center rounded-2xl border border-cyan-400/20 bg-cyan-400/10 text-cyan-300 shadow-[0_0_30px_rgba(34,211,238,0.16)]">
-                ✦
-              </div>
-              <div>
-                <h2 className="text-base font-semibold tracking-tight text-slate-50">GeoAI Assistant</h2>
-                <p className="text-[11px] uppercase tracking-[0.28em] text-cyan-300/80">Groq · map-aware · risk-aware</p>
-              </div>
+      {/* Header */}
+      <header className="border-b border-white/5 bg-gradient-to-r from-cyan-500/10 via-blue-500/8 to-fuchsia-500/10 px-4 py-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl border border-cyan-400/20 bg-cyan-400/10 text-cyan-300 text-sm">
+              ✦
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold tracking-tight text-slate-50">GeoAI Assistant</h2>
+              <p className="text-[10px] uppercase tracking-widest text-cyan-400/60">map · risk · weather</p>
             </div>
           </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={clearChat}
-              title="Clear chat"
-              className="rounded-xl border border-white/8 bg-white/[0.03] p-1.5 text-slate-500 transition hover:border-white/15 hover:text-slate-300"
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" />
-              </svg>
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={clearChat}
+            title="Clear chat"
+            className="rounded-lg border border-white/8 bg-white/[0.03] p-1.5 text-slate-500 transition hover:border-white/15 hover:text-slate-300"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" />
+            </svg>
+          </button>
         </div>
 
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {contextualSuggestions.map((suggestion) => (
+        {/* Contextual suggestions */}
+        <div className="mt-2.5 flex flex-wrap gap-1.5">
+          {suggestions.map((s) => (
             <button
-              key={suggestion}
+              key={s}
               type="button"
-              onClick={() => void sendText(suggestion)}
-              className="rounded-full border border-white/8 bg-white/[0.03] px-3 py-1.5 text-[11px] text-slate-400 text-left transition hover:border-cyan-400/20 hover:bg-cyan-400/[0.06] hover:text-slate-200 truncate"
-              title={suggestion}
+              onClick={() => void sendText(s)}
+              disabled={loading}
+              className="rounded-full border border-white/8 bg-white/[0.03] px-2.5 py-1 text-[11px] text-slate-400 transition hover:border-cyan-400/25 hover:bg-cyan-400/[0.07] hover:text-slate-200 disabled:opacity-40"
             >
-              {suggestion}
+              {s}
             </button>
           ))}
         </div>
       </header>
 
-      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-3 py-3" style={{ minHeight: 0 }}>
+      {/* Messages */}
+      <div
+        ref={messagesContainerRef}
+        className="flex-1 overflow-y-auto px-3 py-4"
+        style={{ minHeight: 0 }}
+      >
         <div className="space-y-4">
           {messages.map((message) => {
-            const isUser = message.role === "user";
-            const isTool = message.role === "tool";
-
-            if (isUser) {
+            if (message.role === "user") {
               return (
                 <div key={message.id} className="flex justify-end">
-                  <div className="max-w-[86%] rounded-[22px] rounded-tr-md border border-cyan-400/20 bg-cyan-500/12 px-4 py-3 text-sm leading-relaxed text-slate-50 shadow-[0_10px_30px_rgba(34,211,238,0.08)]">
+                  <div className="max-w-[85%] rounded-2xl rounded-tr-sm border border-cyan-400/15 bg-cyan-500/10 px-4 py-2.5 text-sm leading-relaxed text-slate-100">
                     <MarkdownText text={message.content} />
                   </div>
                 </div>
               );
             }
 
-            if (isTool) {
+            if (message.role === "tool") {
               return (
-                <div key={message.id} className="flex items-start gap-2">
-                  <div className="mt-0.5 flex h-7 w-7 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-[11px] text-cyan-200">
-                    ⌁
-                  </div>
-                  <div className="flex-1 rounded-[20px] border border-white/8 bg-white/[0.035] px-3 py-2.5 text-[12px] text-slate-300">
-                    <div className="mb-1 text-[10px] uppercase tracking-[0.2em] text-slate-500">Tool</div>
+                <div key={message.id} className="flex items-center gap-2 px-1">
+                  <span className="text-slate-600 text-xs">⌁</span>
+                  <span className="text-[11px] text-slate-500">
                     <MarkdownText text={message.content} />
-                  </div>
+                  </span>
                 </div>
               );
             }
 
             return (
               <div key={message.id} className="flex items-start gap-2.5">
-                <div className="mt-0.5 flex h-7 w-7 items-center justify-center rounded-2xl border border-cyan-400/20 bg-cyan-400/10 text-cyan-200 shadow-[0_0_20px_rgba(34,211,238,0.12)]">
+                <div className="mt-0.5 flex-shrink-0 flex h-6 w-6 items-center justify-center rounded-lg border border-cyan-400/20 bg-cyan-400/10 text-cyan-300 text-xs">
                   ✦
                 </div>
-                <div className="flex-1 rounded-[22px] border border-white/8 bg-white/[0.04] px-4 py-3 text-sm leading-relaxed text-slate-100">
+                <div className="flex-1 min-w-0 rounded-2xl border border-white/[0.07] bg-white/[0.035] px-4 py-3 text-sm leading-relaxed text-slate-100">
                   <MarkdownText text={message.content} />
                 </div>
               </div>
             );
           })}
 
-          {loading ? <AssistantTyping /> : null}
+          {loading && <AssistantTyping />}
         </div>
       </div>
 
-      <footer className="border-t border-white/5 px-3 py-3 bg-[#08101f]">
+      {/* Footer */}
+      <footer className="border-t border-white/5 px-3 py-3 bg-[#060d1a]">
         <div className="flex gap-2 items-end">
           <textarea
             ref={inputRef}
@@ -826,18 +867,18 @@ export default function GeoAssistant() {
               }
             }}
             placeholder="Ask anything..."
-            className="min-h-[44px] flex-1 min-w-0 resize-none rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-cyan-400/30 focus:bg-white/[0.06] transition-all"
+            className="min-h-[42px] flex-1 min-w-0 resize-none rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-2.5 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-cyan-400/30 focus:bg-white/[0.06] transition-all"
             rows={1}
           />
           {loading ? (
             <button
               type="button"
               onClick={stopGeneration}
-              className="inline-flex h-[44px] w-[44px] items-center justify-center rounded-2xl border border-amber-300/20 bg-amber-400/10 text-amber-300 hover:bg-amber-400/20 transition-all flex-shrink-0"
+              className="flex-shrink-0 inline-flex h-[42px] w-[42px] items-center justify-center rounded-2xl border border-amber-400/20 bg-amber-400/10 text-amber-300 hover:bg-amber-400/20 transition-all"
               title="Stop"
             >
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-                <rect x="2" y="2" width="8" height="8" rx="1"/>
+              <svg width="11" height="11" viewBox="0 0 12 12" fill="currentColor">
+                <rect x="2" y="2" width="8" height="8" rx="1" />
               </svg>
             </button>
           ) : (
@@ -845,11 +886,11 @@ export default function GeoAssistant() {
               type="button"
               disabled={!input.trim()}
               onClick={sendCurrent}
-              className="inline-flex h-[44px] w-[44px] items-center justify-center rounded-2xl border border-cyan-400/20 bg-cyan-400/10 text-cyan-300 hover:border-cyan-300/40 hover:bg-cyan-400/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all flex-shrink-0"
+              className="flex-shrink-0 inline-flex h-[42px] w-[42px] items-center justify-center rounded-2xl border border-cyan-400/20 bg-cyan-400/10 text-cyan-300 hover:border-cyan-300/40 hover:bg-cyan-400/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
               title="Send"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="m22 2-7 20-4-9-9-4 20-7z"/>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="m22 2-7 20-4-9-9-4 20-7z" />
               </svg>
             </button>
           )}
