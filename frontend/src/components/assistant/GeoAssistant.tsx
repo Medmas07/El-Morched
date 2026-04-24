@@ -176,75 +176,23 @@ async function getOSRMRoute(coords: { lat: number; lon: number }[]) {
 function buildSystemPrompt() {
   const state = useAnalysisStore.getState();
   const hasRisk = state.floodLayers.length > 0 || state.heatLayers.length > 0;
-  const hasAoi = !!state.aoi;
 
-  return `You are GeoAI, a geospatial assistant for flood and heat risk mapping.
+  return `You are GeoAI, a geospatial assistant for flood/heat risk mapping.
 
-TOOL CALLING RULES — read every rule before deciding to call a tool:
+TOOL RULES (never violate):
+- run_risk_analysis: ONLY if user names a specific place. Never invent locations.
+- set_waypoints: ONLY if user gives 2+ place names. Never invent destinations.
+- Knowledge questions (why/how/what causes): answer directly, no tools.
+- get_risk_summary: when user asks about current map results.
+- geocode_location: when user asks to navigate/find a place.
+- get_weather: when user asks about weather for a place.
 
-RULE 1 — run_risk_analysis:
-You may ONLY call this tool if the user message contains an explicit,
-recognizable geographic place name (a city, town, or named location).
-If the user says "run analysis", "do analysis", "analyze", "check risk"
-WITHOUT a place name → do NOT call the tool, ask: "Which location should
-I analyze? For example: Nabeul, Bizerte, or Sousse."
-NEVER invent or assume a location. The location argument must come
-directly and explicitly from the user's message.
+APP STATE:
+- Risk loaded: ${hasRisk ? `YES (${state.floodLayers.length} flood, ${state.heatLayers.length} heat zones)` : "NO"}
+- AOI: ${state.aoi ? "set" : "none"} | Layer: ${state.activeLayer} | Running: ${state.isRunning ? "YES" : "no"}
 
-RULE 2 — set_waypoints:
-You may ONLY call this tool if the user message contains AT LEAST TWO
-distinct place names for start and destination.
-If only one place is mentioned → do NOT call the tool, ask: "Where would
-you like to go from [place]? Please give me a destination."
-NEVER invent waypoints. Every waypoint must be explicitly stated by user.
-
-RULE 3 — Knowledge questions:
-If the user asks "why", "how", "what causes", "explain", "what is",
-"tell me about" → these are knowledge questions. Answer them directly
-from your knowledge. Do NOT call any tool unless a specific place
-and action are also requested in the same message.
-Examples that must NOT trigger any tool:
-- "What causes flash floods?" → answer from knowledge, no tool
-- "How does heat island effect work?" → answer from knowledge, no tool
-- "Why is coastal Tunisia flood-prone?" → answer from knowledge, no tool
-
-RULE 4 — get_risk_summary:
-Call this only when user asks to "explain", "summarize", "describe" the
-CURRENT results ON THE MAP. If no analysis is loaded, call it anyway —
-it will tell the LLM that no data exists yet.
-
-RULE 5 — geocode_location:
-Call this when user asks to "show", "find", "go to", "center on",
-"navigate to" a place. Single place name is enough.
-
-RULE 6 — get_weather:
-Call this when user asks about weather, temperature, rainfall, or
-climate for a specific place.
-
-CURRENT APP STATE:
-- Risk data loaded: ${hasRisk
-    ? `YES — ${state.floodLayers.length} flood zones, ${state.heatLayers.length} heat zones`
-    : "NO — no analysis run yet"}
-- Area of interest: ${hasAoi
-    ? `${state.aoi!.south.toFixed(2)}°N to ${state.aoi!.north.toFixed(2)}°N, ${state.aoi!.west.toFixed(2)}°E to ${state.aoi!.east.toFixed(2)}°E`
-    : "none"}
-- Active layer: ${state.activeLayer}
-- Analysis running: ${state.isRunning ? "YES — wait before running another" : "no"}
-- Last duration: ${state.lastAnalysisDurationSeconds != null
-    ? state.lastAnalysisDurationSeconds.toFixed(1) + "s"
-    : "n/a"}
-
-RISK SCORE GUIDE (when explaining results):
-- 0.0–0.2 = none, 0.2–0.4 = low (green), 0.4–0.6 = medium (yellow)
-- 0.6–0.8 = high (orange), 0.8–1.0 = extreme (red)
-- High weather_score = recent heavy rainfall is the main driver
-- High terrain_score = flat/low elevation traps water
-- High impervious_surface = concrete/asphalt increases runoff
-- Low vegetation = less natural drainage and cooling
-
-When explaining risk results: mention zone counts, dominant factors,
-and give one practical implication for residents or planners.
-Be concise — use bullet points, max 150 words.`;
+Scores: 0-0.2=none, 0.2-0.4=low, 0.4-0.6=medium, 0.6-0.8=high, 0.8-1.0=extreme.
+Be concise. Use bullet points. Max 100 words per response.`;
 }
 
 function getContextualSuggestions(): string[] {
@@ -636,14 +584,14 @@ export default function GeoAssistant() {
 
       setMessages((prev) => [...prev, userMessage]);
 
+      const recentMessages = messages
+        .filter((message) => message.role !== "tool")
+        .slice(-4)
+        .map((message) => ({ role: message.role, content: message.content }));
+
       const conversation: AssistantChatMessage[] = [
         { role: "system", content: buildSystemPrompt() },
-        ...messages.slice(-6)
-          .filter((message) => message.role !== "tool")
-          .map((message) => ({
-            role: message.role,
-            content: message.content,
-          })),
+        ...recentMessages,
         { role: "user", content: trimmed },
       ];
 
@@ -789,15 +737,28 @@ export default function GeoAssistant() {
               </div>
             </div>
           </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={clearChat}
+              title="Clear chat"
+              className="rounded-xl border border-white/8 bg-white/[0.03] p-1.5 text-slate-500 transition hover:border-white/15 hover:text-slate-300"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" />
+              </svg>
+            </button>
+          </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-slate-400">
+        <div className="mt-2 flex flex-wrap gap-1.5">
           {contextualSuggestions.map((suggestion) => (
             <button
               key={suggestion}
               type="button"
               onClick={() => void sendText(suggestion)}
-              className="rounded-2xl border border-white/8 bg-white/[0.04] px-3 py-2 text-left transition hover:border-cyan-400/20 hover:bg-cyan-400/[0.08]"
+              className="rounded-full border border-white/8 bg-white/[0.03] px-3 py-1.5 text-[11px] text-slate-400 text-left transition hover:border-cyan-400/20 hover:bg-cyan-400/[0.06] hover:text-slate-200 truncate"
               title={suggestion}
             >
               {suggestion}
@@ -807,7 +768,7 @@ export default function GeoAssistant() {
       </header>
 
       <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-3 py-3" style={{ minHeight: 0 }}>
-        <div className="space-y-3">
+        <div className="space-y-4">
           {messages.map((message) => {
             const isUser = message.role === "user";
             const isTool = message.role === "tool";
@@ -852,22 +813,11 @@ export default function GeoAssistant() {
         </div>
       </div>
 
-      <footer className="relative z-10 border-t border-white/5 bg-slate-950/70 px-3 py-3">
-        {isRunning ? (
-          <div className="mb-2 rounded-2xl border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-[11px] text-amber-100">
-            Analysis is running in the app right now.
-          </div>
-        ) : null}
-        {lastAnalysisDurationSeconds != null ? (
-          <div className="mb-2 rounded-2xl border border-white/8 bg-white/[0.03] px-3 py-2 text-[11px] text-slate-300">
-            Last analysis duration: {lastAnalysisDurationSeconds.toFixed(1)}s · Active layer: {activeLayer}
-          </div>
-        ) : null}
-        <div className="flex gap-2">
+      <footer className="border-t border-white/5 px-3 py-3 bg-[#08101f]">
+        <div className="flex gap-2 items-end">
           <textarea
             ref={inputRef}
             value={input}
-            disabled={false}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
@@ -875,57 +825,34 @@ export default function GeoAssistant() {
                 sendCurrent();
               }
             }}
-            placeholder="Ask about places, routes, weather, or risk..."
-            className="pointer-events-auto min-h-[44px] flex-1 resize-none rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-cyan-400/30 focus:bg-white/[0.06]"
+            placeholder="Ask anything..."
+            className="min-h-[44px] flex-1 min-w-0 resize-none rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-cyan-400/30 focus:bg-white/[0.06] transition-all"
             rows={1}
           />
           {loading ? (
             <button
               type="button"
               onClick={stopGeneration}
-              className="inline-flex h-[44px] items-center justify-center rounded-2xl border border-amber-300/30 bg-amber-400/10 px-3 text-[11px] font-semibold text-amber-100 transition hover:bg-amber-400/20"
+              className="inline-flex h-[44px] w-[44px] items-center justify-center rounded-2xl border border-amber-300/20 bg-amber-400/10 text-amber-300 hover:bg-amber-400/20 transition-all flex-shrink-0"
+              title="Stop"
             >
-              Stop
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                <rect x="2" y="2" width="8" height="8" rx="1"/>
+              </svg>
             </button>
-          ) : null}
-          <button
-            type="button"
-            disabled={!input.trim() || loading}
-            onClick={sendCurrent}
-            className="inline-flex h-[44px] w-[44px] items-center justify-center rounded-2xl border border-cyan-400/20 bg-cyan-400/10 text-cyan-200 transition hover:border-cyan-300/40 hover:bg-cyan-400/15 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            ➤
-          </button>
-        </div>
-        <div className="mt-2 flex items-center justify-between text-[10px] text-slate-500">
-          <span>Powered by Groq</span>
-          <div className="flex items-center gap-2">
+          ) : (
             <button
               type="button"
-              onClick={clearChat}
-              className="rounded-full border border-white/8 bg-white/[0.03] px-2.5 py-1 text-slate-400 transition hover:border-white/15 hover:bg-white/5 hover:text-slate-200"
+              disabled={!input.trim()}
+              onClick={sendCurrent}
+              className="inline-flex h-[44px] w-[44px] items-center justify-center rounded-2xl border border-cyan-400/20 bg-cyan-400/10 text-cyan-300 hover:border-cyan-300/40 hover:bg-cyan-400/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all flex-shrink-0"
+              title="Send"
             >
-              Clear chat
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="m22 2-7 20-4-9-9-4 20-7z"/>
+              </svg>
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                clearAssistantRoute();
-                setDrawnPath(null);
-                setMessages((prev) => [
-                  ...prev,
-                  {
-                    id: genId(),
-                    role: "assistant",
-                    content: "Assistant route overlays cleared.",
-                  },
-                ]);
-              }}
-              className="rounded-full border border-white/8 bg-white/[0.03] px-2.5 py-1 text-slate-400 transition hover:border-white/15 hover:bg-white/5 hover:text-slate-200"
-            >
-              Clear overlays
-            </button>
-          </div>
+          )}
         </div>
       </footer>
     </section>

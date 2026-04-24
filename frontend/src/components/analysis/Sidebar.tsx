@@ -183,7 +183,6 @@ export default function Sidebar() {
   const setAOI = useAnalysisStore((s) => s.setAOI);
   const flyTo = useAnalysisStore((s) => s.flyTo);
   const pathWidthMeters = useAnalysisStore((s) => s.pathWidthMeters);
-  const setPathWidthMeters = useAnalysisStore((s) => s.setPathWidthMeters);
   const setData = useAnalysisStore((s) => s.setData);
   const mode = useAnalysisStore((s) => s.mode);
   const setMode = useAnalysisStore((s) => s.setMode);
@@ -395,71 +394,53 @@ export default function Sidebar() {
         )}
       </Panel>
 
-      {/* Corridor width */}
-      <Panel>
-        <SectionLabel>Corridor Width</SectionLabel>
-        <div className="mb-2 flex items-center justify-between">
-          <span className="text-xs text-slate-400">Search radius</span>
-          <span className="text-sm font-bold text-cyan-300">{pathWidthMeters} m</span>
-        </div>
-        <input
-          type="range"
-          min={5}
-          max={120}
-          step={5}
-          value={pathWidthMeters}
-          onChange={(e) => setPathWidthMeters(Number(e.target.value))}
-          className="slider-cyan w-full"
-        />
-        <div className="mt-1 flex justify-between text-[10px] text-slate-600">
-          <span>5 m</span>
-          <span>120 m</span>
-        </div>
-      </Panel>
-
-      {/* Elevation source */}
-      <Panel>
-        <SectionLabel>Elevation Data</SectionLabel>
-        <div className="space-y-2">
-          <div>
-            <label className="mb-1 block text-[10px] uppercase tracking-[0.12em] text-slate-600">
-              Provider
-            </label>
-            <select
-              value={elevationProvider}
-              onChange={(e) => setElevationProvider(e.target.value as ProviderSelectValue)}
-              className="select-dark w-full rounded-lg border border-white/[0.08] bg-[#0b1220] px-2.5 py-1.5 text-xs text-slate-200 focus:border-cyan-400/30 focus:outline-none"
-            >
-              <option value="default">Auto (default chain)</option>
-              {providerOptions.map((p) => (
-                <option key={p} value={p}>{PROVIDER_LABELS[p]}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-[10px] uppercase tracking-[0.12em] text-slate-600">
-              Dataset
-            </label>
-            <select
-              value={elevationDataset}
-              onChange={(e) => setElevationDataset(e.target.value)}
-              disabled={elevationProvider === "default" || datasetOptions.length === 0}
-              className="select-dark w-full rounded-lg border border-white/[0.08] bg-[#0b1220] px-2.5 py-1.5 text-xs text-slate-200 focus:border-cyan-400/30 focus:outline-none disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <option value="default">
-                {elevationProvider === "default"
-                  ? "Default chain selection"
-                  : datasetOptions.length
-                  ? "Default dataset"
-                  : "No dataset option"}
-              </option>
-              {datasetOptions.map((d) => (
-                <option key={d.value} value={d.value}>{d.label}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </Panel>
+      {mode === "advanced" && (
+        <>
+          {/* Elevation source */}
+          <Panel>
+            <SectionLabel>Elevation Data</SectionLabel>
+            <div className="space-y-2">
+              <div>
+                <label className="mb-1 block text-[10px] uppercase tracking-[0.12em] text-slate-600">
+                  Provider
+                </label>
+                <select
+                  value={elevationProvider}
+                  onChange={(e) => setElevationProvider(e.target.value as ProviderSelectValue)}
+                  className="select-dark w-full rounded-lg border border-white/[0.08] bg-[#0b1220] px-2.5 py-1.5 text-xs text-slate-200 focus:border-cyan-400/30 focus:outline-none"
+                >
+                  <option value="default">Auto (default chain)</option>
+                  {providerOptions.map((p) => (
+                    <option key={p} value={p}>{PROVIDER_LABELS[p]}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-[10px] uppercase tracking-[0.12em] text-slate-600">
+                  Dataset
+                </label>
+                <select
+                  value={elevationDataset}
+                  onChange={(e) => setElevationDataset(e.target.value)}
+                  disabled={elevationProvider === "default" || datasetOptions.length === 0}
+                  className="select-dark w-full rounded-lg border border-white/[0.08] bg-[#0b1220] px-2.5 py-1.5 text-xs text-slate-200 focus:border-cyan-400/30 focus:outline-none disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <option value="default">
+                    {elevationProvider === "default"
+                      ? "Default chain selection"
+                      : datasetOptions.length
+                      ? "Default dataset"
+                      : "No dataset option"}
+                  </option>
+                  {datasetOptions.map((d) => (
+                    <option key={d.value} value={d.value}>{d.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </Panel>
+        </>
+      )}
 
       {/* Run Analysis CTA */}
       <button
@@ -498,7 +479,7 @@ export default function Sidebar() {
       </button>
 
       {/* Duration badge */}
-      {lastAnalysisDurationSeconds !== null && hasResults && (
+      {mode === "advanced" && lastAnalysisDurationSeconds !== null && hasResults && (
         <div className="flex items-center gap-1.5 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-[11px] text-emerald-300">
           <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
           {lastAnalysisDurationSeconds < 0.5
@@ -508,7 +489,7 @@ export default function Sidebar() {
       )}
 
       {/* Risk layer controls */}
-      {hasResults && (
+      {mode === "advanced" && hasResults && (
         <Panel>
           <SectionLabel>Risk Layer</SectionLabel>
 
@@ -560,7 +541,7 @@ export default function Sidebar() {
       )}
 
       {/* Instructions */}
-      {!hasResults && !isRunning && (
+      {mode === "advanced" && !hasResults && !isRunning && (
         <div className="mt-auto rounded-xl border border-white/[0.05] bg-white/[0.02] p-3 text-xs leading-relaxed text-slate-500">
           <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-600">
             Getting started

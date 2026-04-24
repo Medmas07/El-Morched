@@ -94,106 +94,45 @@ export default function Home() {
   // ── Simple mode ─────────────────────────────────────────────────────────────
   if (mode === "simple") {
     return (
-      <main
-        className="relative w-screen overflow-hidden"
-        style={{ height: "100dvh", background: "#070d1a" }}
-      >
-        {/* Full-screen map */}
-        <div className="absolute inset-0 z-0">
-          <MapView onMapReady={handleMapReady} />
-        </div>
-
-        {/* Floating sidebar – glassmorphism left panel */}
-        <div className="absolute left-4 top-4 z-[700] w-[300px] animate-slide-in-left">
-          <Sidebar />
-        </div>
-
-        {/* Centered search bar */}
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[700]">
-          <SearchBar />
-        </div>
-
-        {/* Waypoint router — shifts left when assistant is open */}
-        {mapReady && (
-          <div
-            className="absolute top-[72px] z-[560] transition-all duration-300"
-            style={{ right: assistantOpen ? 356 : 12 }}
-          >
-            <WaypointRouter mapRef={leafletMapRef} />
+      <main className="flex h-screen w-screen bg-slate-900 overflow-hidden">
+        {/* Map area */}
+        <div className="relative flex-1 min-w-0">
+          <div className="absolute inset-0 z-0">
+            <MapView onMapReady={handleMapReady} />
           </div>
-        )}
 
-        {/* Floating bottom toolbar */}
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[700] flex items-center gap-1 rounded-full border border-white/10 bg-black/55 px-2 py-1.5 shadow-[0_8px_32px_rgba(0,0,0,0.55)] backdrop-blur-xl">
-          <ToolbarBtn onClick={() => setMode("advanced")} label="Advanced">
-            <IconGrid />
-          </ToolbarBtn>
-          <div className="mx-0.5 h-4 w-px bg-white/10" />
-          <ToolbarBtn
-            active={assistantOpen}
-            onClick={() => setAssistantOpen((p) => !p)}
-            label="AI Assistant"
-          >
-            <IconBot />
-          </ToolbarBtn>
-        </div>
-
-        {/* Assistant slide-in panel */}
-        {assistantOpen && (
-          <div className="absolute right-0 top-0 z-[800] h-full w-[340px] animate-slide-in-right shadow-[-12px_0_48px_rgba(0,0,0,0.45)]">
-            <GeoAssistant />
+          <div className="absolute left-4 top-4 z-[700] w-[300px] animate-slide-in-left">
+            <Sidebar />
           </div>
-        )}
-      </main>
-    );
-  }
 
-  // ── Advanced mode ────────────────────────────────────────────────────────────
-  return (
-    <main
-      style={{
-        display: "grid",
-        gridTemplateColumns: assistantOpen ? "300px 1fr 340px" : "300px 1fr",
-        gridTemplateRows: "1fr 200px",
-        height: "100dvh",
-        gap: "4px",
-        padding: "4px",
-        background: "#070d1a",
-        overflow: "hidden",
-      }}
-    >
-      {/* ── Left: Sidebar (full height) ─────────────────────────────────────── */}
-      <div className="row-span-2 overflow-hidden rounded-xl">
-        <Sidebar />
-      </div>
-
-      {/* ── Center-top: ImageViewer + Map ──────────────────────────────────── */}
-      <div className="flex min-h-0 gap-1 overflow-hidden rounded-xl">
-        {/* ImageViewer — 40% */}
-        <div className="w-[40%] flex-shrink-0 overflow-hidden rounded-xl">
-          <ImageViewer />
-        </div>
-
-        {/* Map — 60%, with floating overlays */}
-        <div className="relative flex-1 min-w-0 overflow-hidden rounded-xl">
-          <MapView onMapReady={handleMapReady} />
-
-          {/* Search */}
-          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[700]">
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[700]">
             <SearchBar />
           </div>
 
-          {/* Waypoint router */}
           {mapReady && (
-            <div className="absolute top-[60px] right-3 z-[560]">
+            <div
+              className="absolute top-[72px] z-[560] transition-all duration-300"
+              style={{ right: assistantOpen ? 356 : 12 }}
+            >
               <WaypointRouter mapRef={leafletMapRef} />
             </div>
           )}
 
-          {/* Bottom mode/assistant toolbar */}
-          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-[700] flex items-center gap-1 rounded-full border border-white/10 bg-black/55 px-2 py-1 backdrop-blur-xl shadow-[0_4px_20px_rgba(0,0,0,0.5)]">
-            <ToolbarBtn onClick={() => setMode("simple")} label="Simple">
-              <IconMap />
+            {/* Assistant toggle button on right edge of map */}
+            <button
+              type="button"
+              onClick={() => setAssistantOpen((prev) => !prev)}
+              className="absolute right-0 top-1/2 -translate-y-1/2 z-[600] flex h-12 w-5 items-center justify-center rounded-l-lg bg-slate-800 border border-slate-700 border-r-0 text-slate-400 hover:text-cyan-400 hover:bg-slate-700 transition-all"
+              title={assistantOpen ? "Hide assistant" : "Show assistant"}
+            >
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
+                {assistantOpen ? <path d="M3 1l4 4-4 4" /> : <path d="M7 1L3 5l4 4" />}
+              </svg>
+            </button>
+
+          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[700] flex items-center gap-1 rounded-full border border-white/10 bg-black/55 px-2 py-1.5 shadow-[0_8px_32px_rgba(0,0,0,0.55)] backdrop-blur-xl">
+            <ToolbarBtn onClick={() => setMode("advanced")} label="Advanced">
+              <IconGrid />
             </ToolbarBtn>
             <div className="mx-0.5 h-4 w-px bg-white/10" />
             <ToolbarBtn
@@ -205,19 +144,83 @@ export default function Home() {
             </ToolbarBtn>
           </div>
         </div>
+
+        {/* Assistant panel */}
+        <div className="h-full w-[340px] min-w-[340px] flex-shrink-0 border-l border-slate-800 flex flex-col">
+          {assistantOpen ? (
+            <GeoAssistant />
+          ) : (
+            <div className="flex h-full items-center justify-center bg-[#0a0e1a]">
+              <button
+                type="button"
+                onClick={() => setAssistantOpen(true)}
+                className="flex flex-col items-center gap-3 text-slate-500 hover:text-cyan-400 transition-colors p-6 rounded-xl hover:bg-white/5"
+              >
+                <span className="text-2xl">✦</span>
+                <span className="text-xs font-medium tracking-widest uppercase">GeoAI</span>
+                <span className="text-[10px] text-slate-600">Click to open</span>
+              </button>
+            </div>
+          )}
+        </div>
+      </main>
+    );
+  }
+
+  // ── Advanced mode ────────────────────────────────────────────────────────────
+  return (
+    <main
+      className={`grid grid-rows-[1fr_260px] h-screen bg-[#0b0f1a] text-slate-100 transition-all ${
+        assistantOpen ? "grid-cols-[300px_1fr_1fr_340px]" : "grid-cols-[300px_1fr_1fr]"
+      }`}
+    >
+      {/* Col 1: Sidebar — row span 2 */}
+      <div className="row-span-2 border-r border-slate-800 min-h-0 overflow-hidden">
+        <Sidebar />
       </div>
 
-      {/* ── Center-bottom: Elevation profile ──────────────────────────────── */}
-      <div className="min-h-0 overflow-hidden rounded-xl">
+      {/* Col 2: ImageViewer — row 1 */}
+      <div className="border-b border-r border-slate-800 min-w-0 min-h-0 overflow-hidden">
+        <ImageViewer />
+      </div>
+
+      {/* Col 3: Map — row 1 */}
+      <div className="border-b border-r border-slate-800 min-w-0 min-h-0 relative overflow-hidden">
+        <MapView onMapReady={handleMapReady} />
+
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[700]">
+          <SearchBar />
+        </div>
+
+        {mapReady && (
+          <div className="absolute top-[60px] right-3 z-[560]">
+            <WaypointRouter mapRef={leafletMapRef} />
+          </div>
+        )}
+
+        {/* Assistant toggle button on right edge of map */}
+        <button
+          type="button"
+          onClick={() => setAssistantOpen((prev) => !prev)}
+          className="absolute right-0 top-1/2 -translate-y-1/2 z-[600] flex h-12 w-5 items-center justify-center rounded-l-lg bg-slate-800 border border-slate-700 border-r-0 text-slate-400 hover:text-cyan-400 hover:bg-slate-700 transition-all"
+          title={assistantOpen ? "Hide assistant" : "Show assistant"}
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
+            {assistantOpen ? <path d="M3 1l4 4-4 4" /> : <path d="M7 1L3 5l4 4" />}
+          </svg>
+        </button>
+      </div>
+
+      {/* Col 4: GeoAssistant — row span 2, aligned from very top */}
+      <div className={`row-span-2 border-l border-slate-800 min-h-0 overflow-hidden flex flex-col transition-all ${assistantOpen ? "w-[340px]" : "w-0 border-l-0"}`}>
+        {assistantOpen && <GeoAssistant />}
+      </div>
+
+      {/* Col 2-3: ProfileChart — row 2, spans cols 2 and 3 */}
+      <div className="col-span-2 min-w-0 min-h-0 overflow-hidden border-t-2 border-slate-700">
         <ProfileChart />
       </div>
 
-      {/* ── Right: AI Assistant (full height) ─────────────────────────────── */}
-      {assistantOpen && (
-        <div className="row-span-2 overflow-hidden rounded-xl">
-          <GeoAssistant />
-        </div>
-      )}
     </main>
   );
 }
