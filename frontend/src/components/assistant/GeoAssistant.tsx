@@ -543,9 +543,19 @@ function MarkdownText({ text }: { text: string }) {
 
 function AssistantTyping() {
   return (
-    <div className="flex items-center gap-2 px-1 py-1.5 text-xs text-cyan-200/80">
-      <span className="h-2 w-2 animate-ping rounded-full bg-cyan-400" />
-      <span>GeoAI is thinking…</span>
+    <div className="flex items-start gap-2.5">
+      <div className="mt-0.5 flex h-7 w-7 items-center justify-center rounded-2xl border border-cyan-400/20 bg-cyan-400/10 text-cyan-200 shadow-[0_0_20px_rgba(34,211,238,0.12)]">
+        ✦
+      </div>
+      <div className="flex items-center gap-1.5 rounded-[22px] border border-white/[0.08] bg-white/[0.04] px-4 py-3">
+        {[0, 1, 2].map((i) => (
+          <span
+            key={i}
+            className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-dot-bounce"
+            style={{ animationDelay: `${i * 0.18}s` }}
+          />
+        ))}
+      </div>
     </div>
   );
 }

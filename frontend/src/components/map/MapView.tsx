@@ -9,17 +9,18 @@ import { RISK_COLORS, type RiskCategory } from "@/types";
 type Basemap = "osm" | "satellite" | "terrain";
 
 const TILE_URL: Record<Basemap, string> = {
-  osm: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+  osm: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
   satellite:
     "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
   terrain: "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
 };
 
 const ATTRIBUTION: Record<Basemap, string> = {
-  osm: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  osm: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
   satellite:
     "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
-  terrain: '&copy; <a href="https://opentopomap.org">OpenTopoMap</a> contributors',
+  terrain:
+    '&copy; <a href="https://opentopomap.org">OpenTopoMap</a> contributors',
 };
 
 // ---------------------------------------------------------------------------
