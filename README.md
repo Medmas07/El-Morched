@@ -1,6 +1,6 @@
-# Pathora
+# El-Morched
 
-Pathora is a climate risk intelligence platform that helps teams understand **where flood and urban heat risks are highest** and what to do about them.
+El-Morched is a climate risk intelligence platform that helps teams understand **where flood and urban heat risks are highest** and what to do about them.
 
 It is designed for:
 - **City and regional planners**
